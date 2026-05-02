@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>VRM Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent !important;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            background: transparent !important;
+        }
+        canvas {
+            display: block;
+            background: transparent !important;
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+        import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+        console.log('[VRM Viewer] Script started');
+
+        let vrm = null;
+        let mixer = null;
+        let clock = new THREE.Clock();
+        let currentExpression = 'neutral';
+        let blinkTimer = 0;
+        let isBlinking = false;
+        let isInitialized = false;
+
+        const container = document.getElementById('canvas-container');
+        if (!container) {
+            console.error('[VRM Viewer] canvas-container not found');
+        }
+
+        // Scene setup
+        const scene = new THREE.Scene();
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(30, container.clientWidth / container.clientHeight, 0.1, 100);
+        camera.position.set(0, 1.3, 1.5);
+        camera.lookAt(0, 1.1, 0);
+
+        // Renderer with alpha
+        const renderer = new THREE.WebGLRenderer({
+            alpha: true,
+            antialias: true,
+            premultipliedAlpha: false
+        });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setClearColor(0x000000, 0);
+        renderer.domElement.style.width = '100%';
+        renderer.domElement.style.height = '100%';
+        renderer.domElement.style.background = 'transparent';
+        container.appendChild(renderer.domElement);
+
+        console.log('[VRM Viewer] Renderer created', container.clientWidth, container.clientHeight);
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
+        const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        backLight.position.set(-1, 0.5, -1);
+        scene.add(backLight);
+
+        function loadVrm(vrmUrl) {
+            console.log('[VRM Viewer] loadVrm called with:', vrmUrl);
+            if (!vrmUrl) {
+                console.warn('[VRM Viewer] Empty URL, using default');
+                vrmUrl = './AvatarSample_M.vrm';
+            }
+
+            const loader = new GLTFLoader();
+            loader.register((parser) => new VRMLoaderPlugin(parser));
+
+            loader.load(
+                vrmUrl,
+                (gltf) => {
+                    console.log('[VRM Viewer] VRM loaded successfully');
+                    try {
+                        if (vrm) {
+                            scene.remove(vrm.scene);
+                            VRMUtils.deepDispose(vrm.scene);
+                        }
+                        vrm = gltf.userData.vrm;
+                        if (!vrm) {
+                            console.error('[VRM Viewer] No VRM data in gltf');
+                            return;
+                        }
+
+                        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+                        VRMUtils.combineSkeletons(gltf.scene);
+                        scene.add(vrm.scene);
+
+                        vrm.scene.position.set(0, 0, 0);
+                        vrm.scene.rotation.set(0, 0, 0);
+                        vrm.scene.scale.set(1, 1, 1);
+
+                        if (vrm.expressionManager) {
+                            vrm.expressionManager.setValue('neutral', 1.0);
+                            console.log('[VRM Viewer] Expressions available');
+                        }
+
+                        if (window.AndroidBridge && window.AndroidBridge.onModelLoaded) {
+                            window.AndroidBridge.onModelLoaded();
+                        }
+                        isInitialized = true;
+                    } catch (e) {
+                        console.error('[VRM Viewer] Error processing VRM:', e);
+                    }
+                },
+                (progress) => {
+                    const pct = progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : 0;
+                    console.log('[VRM Viewer] Loading progress:', pct + '%');
+                },
+                (error) => {
+                    console.error('[VRM Viewer] Failed to load VRM:', error);
+                }
+            );
+        }
+
+        window.loadVrm = loadVrm;
+
+        window.setExpression = function(expressionName, value = 1.0) {
+            if (!vrm || !vrm.expressionManager) {
+                console.warn('[VRM Viewer] ExpressionManager not available');
+                return;
+            }
+            try {
+                if (currentExpression && currentExpression !== expressionName) {
+                    vrm.expressionManager.setValue(currentExpression, 0.0);
+                }
+                vrm.expressionManager.setValue(expressionName, value);
+                currentExpression = expressionName;
+                console.log('[VRM Viewer] Expression set to:', expressionName);
+            } catch (e) {
+                console.warn('[VRM Viewer] Expression not found:', expressionName, e);
+            }
+        };
+
+        window.resetExpression = function() {
+            window.setExpression('neutral', 1.0);
+        };
+
+        function updateBreathing(delta) {
+            if (!vrm) return;
+            const time = clock.elapsedTime;
+            const breath = Math.sin(time * 2) * 0.02;
+            vrm.scene.position.y = breath;
+        }
+
+        function updateBlink(delta) {
+            if (!vrm || !vrm.expressionManager) return;
+            blinkTimer -= delta;
+            if (blinkTimer <= 0) {
+                if (isBlinking) {
+                    vrm.expressionManager.setValue('blink', 0.0);
+                    isBlinking = false;
+                    blinkTimer = 2 + Math.random() * 4;
+                } else {
+                    vrm.expressionManager.setValue('blink', 1.0);
+                    isBlinking = true;
+                    blinkTimer = 0.15;
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            if (vrm) {
+                vrm.update(delta);
+                updateBreathing(delta);
+                updateBlink(delta);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+            console.log('[VRM Viewer] Resized to:', width, height);
+        });
+
+        container.addEventListener('click', (e) => {
+            console.log('[VRM Viewer] Tap detected');
+            if (window.AndroidBridge && window.AndroidBridge.onTap) {
+                window.AndroidBridge.onTap(e.clientX, e.clientY);
+            }
+        });
+
+        animate();
+        console.log('[VRM Viewer] Animation loop started');
+
+        // Load default VRM
+        console.log('[VRM Viewer] Starting default VRM load');
+        loadVrm('./AvatarSample_M.vrm');
+    </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:parentTag="android.widget.FrameLayout">
+
+    <com.nbks.famichibi.overlay.DraggableWebView
+        android:id="@+id/webView"
+        android:layout_width="280dp"
+        android:layout_height="380dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:background="@android:color/transparent" />
+
+    <FrameLayout
+        android:id="@+id/decorationContainer"
+        android:layout_width="280dp"
+        android:layout_height="380dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:background="@android:color/transparent"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <TextView
+        android:id="@+id/speechBubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/speech_bubble_bg"
+        android:elevation="8dp"
+        android:gravity="center"
+        android:maxWidth="240dp"
+        android:minWidth="120dp"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:textColor="@android:color/black"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+</merge>
