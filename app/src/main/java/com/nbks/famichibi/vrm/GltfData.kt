@@ -15,6 +15,8 @@ class GltfRoot(
     val materials: List<GltfMaterial>? = null,
     val nodes: List<GltfNode>? = null,
     val scenes: List<GltfScene>? = null,
+    val skins: List<GltfSkin>? = null,
+    val animations: List<GltfAnimation>? = null,
 )
 
 @Serializable
@@ -23,6 +25,7 @@ class GltfScene(val nodes: List<Int>? = null)
 @Serializable
 class GltfNode(
     val mesh: Int? = null,
+    val skin: Int? = null,
     val translation: List<Float>? = null,
     val rotation: List<Float>? = null,
     val scale: List<Float>? = null,
@@ -40,6 +43,7 @@ class GltfPrimitive(
     val indices: Int? = null,
     val material: Int? = null,
     val mode: Int = 4, // TRIANGLES
+    val targets: List<Map<String, Int>>? = null,
 )
 
 @Serializable
@@ -96,13 +100,54 @@ class GltfPbr(
 @Serializable
 class GltfTextureInfo(val index: Int, val texCoord: Int = 0)
 
+@Serializable
+class GltfSkin(
+    val inverseBindMatrices: Int,
+    val joints: List<Int>,
+    val name: String? = null,
+)
+
+@Serializable
+class GltfAnimation(
+    val channels: List<GltfAnimationChannel>,
+    val samplers: List<GltfAnimationSampler>,
+    val name: String? = null,
+)
+
+@Serializable
+class GltfAnimationChannel(
+    val sampler: Int,
+    val target: GltfAnimationTarget,
+)
+
+@Serializable
+class GltfAnimationTarget(
+    val node: Int,
+    val path: String, // "translation", "rotation", "scale", "weights"
+)
+
+@Serializable
+class GltfAnimationSampler(
+    val input: Int, // accessor index for times
+    val output: Int, // accessor index for values
+    val interpolation: String = "LINEAR",
+)
+
 data class MeshData(
     val positions: FloatArray,
     val normals: FloatArray?,
     val uvs: FloatArray?,
+    val joints: FloatArray?, // 4 components per vertex (bone indices)
+    val weights: FloatArray?, // 4 components per vertex
     val indices: IntArray,
-    val indexType: Int, // GLES20.GL_UNSIGNED_SHORT or GL_UNSIGNED_INT
+    val indexType: Int,
     val textureBitmap: Bitmap?,
     val baseColorFactor: FloatArray,
     val doubleSided: Boolean,
+    val skin: SkinData?,
+)
+
+data class SkinData(
+    val joints: IntArray,
+    val inverseBindMatrices: FloatArray, // 16 floats per joint
 )

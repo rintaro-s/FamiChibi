@@ -14,16 +14,57 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "com.nbks.famichibi"
+        private const val MAX_BONES = 256
+
+        fun quaternionToMatrix(q: FloatArray, m: FloatArray) {
+            val x = q[0]; val y = q[1]; val z = q[2]; val w = q[3]
+            val xx = x * x; val yy = y * y; val zz = z * z
+            val xy = x * y; val xz = x * z; val yz = y * z
+            val wx = w * x; val wy = w * y; val wz = w * z
+            m[0] = 1 - 2 * (yy + zz); m[4] = 2 * (xy - wz); m[8] = 2 * (xz + wy); m[12] = 0f
+            m[1] = 2 * (xy + wz); m[5] = 1 - 2 * (xx + zz); m[9] = 2 * (yz - wx); m[13] = 0f
+            m[2] = 2 * (xz - wy); m[6] = 2 * (yz + wx); m[10] = 1 - 2 * (xx + yy); m[14] = 0f
+            m[3] = 0f; m[7] = 0f; m[11] = 0f; m[15] = 1f
+        }
+
+        fun multiplyQuaternion(a: FloatArray, b: FloatArray): FloatArray {
+            return floatArrayOf(
+                a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
+                a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
+                a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
+                a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]
+            )
+        }
+
+        fun eulerToQuaternion(x: Float, y: Float, z: Float): FloatArray {
+            val cx = kotlin.math.cos(x/2); val sx = kotlin.math.sin(x/2)
+            val cy = kotlin.math.cos(y/2); val sy = kotlin.math.sin(y/2)
+            val cz = kotlin.math.cos(z/2); val sz = kotlin.math.sin(z/2)
+            return floatArrayOf(
+                sx*cy*cz - cx*sy*sz,
+                cx*sy*cz + sx*cy*sz,
+                cx*cy*sz - sx*sy*cz,
+                cx*cy*cz + sx*sy*sz
+            )
+        }
     }
 
     private val vertexShaderCode = """
         #version 300 es
         in vec4 aPosition;
         in vec2 aTexCoord;
+        in vec4 aJoint;
+        in vec4 aWeight;
         uniform mat4 uMVP;
+        uniform mat4 uBones[$MAX_BONES];
         out vec2 vTexCoord;
         void main() {
-            gl_Position = uMVP * aPosition;
+            mat4 skinMatrix =
+                aWeight.x * uBones[int(aJoint.x)] +
+                aWeight.y * uBones[int(aJoint.y)] +
+                aWeight.z * uBones[int(aJoint.z)] +
+                aWeight.w * uBones[int(aJoint.w)];
+            gl_Position = uMVP * skinMatrix * aPosition;
             vTexCoord = aTexCoord;
         }
     """.trimIndent()
@@ -60,20 +101,68 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
     var isWalking = false
     private var walkPhase = 0f
     private var needsMeshUpdate = false
+    private var pendingRoot: GltfRoot? = null
     private var pendingMeshes: List<MeshData>? = null
 
-    fun setMeshes(meshes: List<MeshData>) {
+    // Bone animation state
+    private var animNodes: MutableList<AnimNode>? = null
+    private var skinData: SkinData? = null
+    private val boneMatrices = FloatArray(MAX_BONES * 16)
+    private var jointNameToIndex = mutableMapOf<String, Int>()
+
+    data class AnimNode(
+        val name: String?,
+        val baseTranslation: FloatArray = floatArrayOf(0f, 0f, 0f),
+        val baseRotation: FloatArray = floatArrayOf(0f, 0f, 0f, 1f),
+        val baseScale: FloatArray = floatArrayOf(1f, 1f, 1f),
+        val translation: FloatArray = floatArrayOf(0f, 0f, 0f),
+        val rotation: FloatArray = floatArrayOf(0f, 0f, 0f, 1f),
+        val scale: FloatArray = floatArrayOf(1f, 1f, 1f),
+        val children: List<Int> = emptyList(),
+    )
+
+    fun loadModel(root: GltfRoot, meshes: List<MeshData>) {
+        pendingRoot = root
         pendingMeshes = meshes
         needsMeshUpdate = true
     }
 
     private fun applyPendingMeshes() {
+        val root = pendingRoot ?: return
         val meshes = pendingMeshes ?: return
+        pendingRoot = null
         pendingMeshes = null
         needsMeshUpdate = false
 
         for (mr in meshRenderers) mr.destroy()
         meshRenderers.clear()
+
+        animNodes = root.nodes?.map { node ->
+            val t = node.translation?.toFloatArray() ?: floatArrayOf(0f, 0f, 0f)
+            val r = node.rotation?.toFloatArray() ?: floatArrayOf(0f, 0f, 0f, 1f)
+            val s = node.scale?.toFloatArray() ?: floatArrayOf(1f, 1f, 1f)
+            AnimNode(
+                name = node.name,
+                baseTranslation = t.copyOf(),
+                baseRotation = r.copyOf(),
+                baseScale = s.copyOf(),
+                translation = t.copyOf(),
+                rotation = r.copyOf(),
+                scale = s.copyOf(),
+                children = node.children ?: emptyList(),
+            )
+        }?.toMutableList()
+
+        skinData = meshes.firstOrNull { it.skin != null }?.skin
+        jointNameToIndex.clear()
+        skinData?.let { skin ->
+            for ((idx, nodeIdx) in skin.joints.withIndex()) {
+                val node = root.nodes?.getOrNull(nodeIdx)
+                if (node?.name != null) {
+                    jointNameToIndex[node.name] = idx
+                }
+            }
+        }
 
         for (mesh in meshes) {
             try {
@@ -83,7 +172,7 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             }
         }
         computeModelMatrix(meshes)
-        Log.d(TAG, "Loaded ${meshRenderers.size} mesh renderers")
+        Log.d(TAG, "Loaded ${meshRenderers.size} mesh renderers, bones=${skinData?.joints?.size ?: 0}")
     }
 
     private fun computeModelMatrix(meshes: List<MeshData>) {
@@ -91,42 +180,28 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             Matrix.setIdentityM(modelMatrix, 0)
             return
         }
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var minZ = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        var maxZ = -Float.MAX_VALUE
-
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var minZ = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
         for (mesh in meshes) {
             val positions = mesh.positions
             for (i in positions.indices step 3) {
                 if (i + 2 >= positions.size) break
-                val x = positions[i]
-                val y = positions[i + 1]
-                val z = positions[i + 2]
-                minX = kotlin.math.min(minX, x)
-                minY = kotlin.math.min(minY, y)
-                minZ = kotlin.math.min(minZ, z)
-                maxX = kotlin.math.max(maxX, x)
-                maxY = kotlin.math.max(maxY, y)
-                maxZ = kotlin.math.max(maxZ, z)
+                minX = kotlin.math.min(minX, positions[i])
+                minY = kotlin.math.min(minY, positions[i + 1])
+                minZ = kotlin.math.min(minZ, positions[i + 2])
+                maxX = kotlin.math.max(maxX, positions[i])
+                maxY = kotlin.math.max(maxY, positions[i + 1])
+                maxZ = kotlin.math.max(maxZ, positions[i + 2])
             }
         }
-
         val centerX = (minX + maxX) / 2f
         val centerY = (minY + maxY) / 2f
         val centerZ = (minZ + maxZ) / 2f
-        val sizeX = maxX - minX
-        val sizeY = maxY - minY
-        val sizeZ = maxZ - minZ
-        val maxSize = kotlin.math.max(sizeX, kotlin.math.max(sizeY, sizeZ))
+        val maxSize = kotlin.math.max(maxX - minX, kotlin.math.max(maxY - minY, maxZ - minZ))
         val scale = if (maxSize > 0f) 1.5f / maxSize else 1f
-
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, -centerX, -centerY, -centerZ)
         Matrix.scaleM(modelMatrix, 0, scale, scale, scale)
-
         Log.d(TAG, "Model bbox: [$minX,$minY,$minZ] - [$maxX,$maxY,$maxZ], scale=$scale")
     }
 
@@ -138,48 +213,38 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
         val vs = loadShader(GLES30.GL_VERTEX_SHADER, vertexShaderCode)
         val fs = loadShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderCode)
-        if (vs == 0 || fs == 0) {
-            Log.e(TAG, "Shader compilation failed")
-            return
-        }
+        if (vs == 0 || fs == 0) { Log.e(TAG, "Shader compilation failed"); return }
         program = createProgram(vs, fs)
-        GLES30.glDeleteShader(vs)
-        GLES30.glDeleteShader(fs)
-        if (program == 0) {
-            Log.e(TAG, "Program linking failed")
-            return
-        }
+        GLES30.glDeleteShader(vs); GLES30.glDeleteShader(fs)
+        if (program == 0) { Log.e(TAG, "Program linking failed"); return }
 
         Matrix.setLookAtM(viewMatrix, 0, 0f, 0.5f, 2.5f, 0f, 0f, 0f, 0f, 1f, 0f)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
-        surfaceWidth = width
-        surfaceHeight = height
+        surfaceWidth = width; surfaceHeight = height
         val ratio = if (height > 0) width.toFloat() / height.toFloat() else 1f
         Matrix.perspectiveM(projMatrix, 0, 45f, ratio, 0.1f, 100f)
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        if (needsMeshUpdate) {
-            applyPendingMeshes()
-        }
-
+        if (needsMeshUpdate) applyPendingMeshes()
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
-
         if (meshRenderers.isEmpty()) return
 
-        Matrix.setIdentityM(tempMatrix, 0)
-
-        // Walking bounce
         if (isWalking) {
-            walkPhase += 0.2f
+            walkPhase += 0.15f
+        }
+
+        applyWalkAnimation()
+        computeBoneMatrices()
+
+        Matrix.setIdentityM(tempMatrix, 0)
+        if (isWalking) {
             val bounce = kotlin.math.sin(walkPhase) * 0.06f
             Matrix.translateM(tempMatrix, 0, 0f, bounce, 0f)
         }
-
-        // Face movement direction (Y-axis rotation)
         Matrix.rotateM(tempMatrix, 0, rotationY, 0f, 1f, 0f)
         Matrix.multiplyMM(tempMatrix, 0, tempMatrix, 0, modelMatrix, 0)
 
@@ -187,7 +252,83 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(mvpMatrix, 0, projMatrix, 0, mvpMatrix, 0)
 
         for (mr in meshRenderers) {
-            mr.draw(program, mvpMatrix)
+            mr.draw(program, mvpMatrix, boneMatrices, skinData != null)
+        }
+    }
+
+    private fun computeBoneMatrices() {
+        val nodes = animNodes ?: return
+        val skin = skinData ?: return
+        val count = nodes.size
+        val globalMatrices = Array(count) { FloatArray(16) }
+        val visited = BooleanArray(count)
+
+        for (i in 0 until count) {
+            computeNodeMatrix(i, visited, globalMatrices)
+        }
+
+        for ((idx, nodeIdx) in skin.joints.withIndex()) {
+            if (idx >= MAX_BONES) break
+            val global = globalMatrices.getOrNull(nodeIdx) ?: continue
+            val ibmOffset = idx * 16
+            Matrix.multiplyMM(boneMatrices, idx * 16, global, 0, skin.inverseBindMatrices, ibmOffset)
+        }
+    }
+
+    private fun computeNodeMatrix(nodeIdx: Int, visited: BooleanArray, globalMatrices: Array<FloatArray>) {
+        if (visited[nodeIdx]) return
+        visited[nodeIdx] = true
+        val node = animNodes?.getOrNull(nodeIdx) ?: return
+        val local = nodeToMatrix(node)
+        var parentIdx = -1
+        for ((i, n) in (animNodes ?: return).withIndex()) {
+            if (n.children.contains(nodeIdx)) { parentIdx = i; break }
+        }
+        if (parentIdx >= 0) {
+            computeNodeMatrix(parentIdx, visited, globalMatrices)
+            Matrix.multiplyMM(globalMatrices[nodeIdx], 0, globalMatrices[parentIdx], 0, local, 0)
+        } else {
+            System.arraycopy(local, 0, globalMatrices[nodeIdx], 0, 16)
+        }
+    }
+
+    private fun nodeToMatrix(node: AnimNode): FloatArray {
+        val m = FloatArray(16)
+        Matrix.setIdentityM(m, 0)
+        Matrix.translateM(m, 0, node.translation[0], node.translation[1], node.translation[2])
+        val rm = FloatArray(16)
+        quaternionToMatrix(node.rotation, rm)
+        val temp = FloatArray(16)
+        System.arraycopy(m, 0, temp, 0, 16)
+        Matrix.multiplyMM(m, 0, temp, 0, rm, 0)
+        Matrix.scaleM(m, 0, node.scale[0], node.scale[1], node.scale[2])
+        return m
+    }
+
+    private fun applyWalkAnimation() {
+        if (!isWalking) {
+            // Reset to base pose
+            // (kept as-is since AnimNode already holds base pose)
+            return
+        }
+        val nodes = animNodes ?: return
+        val legAngle = kotlin.math.sin(walkPhase) * 0.6f // radians (~35 deg)
+        val armAngle = kotlin.math.sin(walkPhase + kotlin.math.PI.toFloat()) * 0.35f
+
+        val rotations = mutableMapOf(
+            "J_Bip_L_UpperLeg" to eulerToQuaternion(legAngle, 0f, 0f),
+            "J_Bip_R_UpperLeg" to eulerToQuaternion(-legAngle, 0f, 0f),
+            "J_Bip_L_LowerLeg" to eulerToQuaternion(kotlin.math.abs(legAngle) * 0.5f, 0f, 0f),
+            "J_Bip_R_LowerLeg" to eulerToQuaternion(kotlin.math.abs(-legAngle) * 0.5f, 0f, 0f),
+            "J_Bip_L_UpperArm" to eulerToQuaternion(armAngle, 0f, 0f),
+            "J_Bip_R_UpperArm" to eulerToQuaternion(-armAngle, 0f, 0f),
+        )
+
+        for ((idx, node) in nodes.withIndex()) {
+            val q = rotations[node.name] ?: continue
+            val base = node.rotation.copyOf()
+            val newQ = multiplyQuaternion(base, q)
+            System.arraycopy(newQ, 0, node.rotation, 0, 4)
         }
     }
 
@@ -223,58 +364,32 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
     fun destroy() {
         for (mr in meshRenderers) mr.destroy()
         meshRenderers.clear()
-        if (program != 0) {
-            GLES30.glDeleteProgram(program)
-            program = 0
-        }
+        if (program != 0) { GLES30.glDeleteProgram(program); program = 0 }
     }
 
     private class MeshRenderer(private val data: MeshData) {
         private var posVbo: Int = 0
         private var uvVbo: Int = 0
         private var normVbo: Int = 0
+        private var jointVbo: Int = 0
+        private var weightVbo: Int = 0
         private var ibo: Int = 0
         private var texId: Int = 0
         private var indexCount: Int = 0
         private var indexType: Int = 0
 
         init {
-            val bufs = IntArray(4)
-            GLES30.glGenBuffers(4, bufs, 0)
-            posVbo = bufs[0]
-            uvVbo = bufs[1]
-            normVbo = bufs[2]
-            ibo = bufs[3]
+            val bufs = IntArray(6)
+            GLES30.glGenBuffers(6, bufs, 0)
+            posVbo = bufs[0]; uvVbo = bufs[1]; normVbo = bufs[2]
+            jointVbo = bufs[3]; weightVbo = bufs[4]; ibo = bufs[5]
 
-            // Positions
-            val posByteBuf = ByteBuffer.allocateDirect(data.positions.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            posByteBuf.put(data.positions).position(0)
-            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, posVbo)
-            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, data.positions.size * 4, posByteBuf, GLES30.GL_STATIC_DRAW)
+            uploadFloatBuffer(posVbo, data.positions)
+            if (data.uvs != null) uploadFloatBuffer(uvVbo, data.uvs)
+            if (data.normals != null) uploadFloatBuffer(normVbo, data.normals)
+            if (data.joints != null) uploadFloatBuffer(jointVbo, data.joints)
+            if (data.weights != null) uploadFloatBuffer(weightVbo, data.weights)
 
-            // UVs
-            if (data.uvs != null) {
-                val uvByteBuf = ByteBuffer.allocateDirect(data.uvs.size * 4)
-                    .order(ByteOrder.nativeOrder())
-                    .asFloatBuffer()
-                uvByteBuf.put(data.uvs).position(0)
-                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, uvVbo)
-                GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, data.uvs.size * 4, uvByteBuf, GLES30.GL_STATIC_DRAW)
-            }
-
-            // Normals
-            if (data.normals != null) {
-                val normByteBuf = ByteBuffer.allocateDirect(data.normals.size * 4)
-                    .order(ByteOrder.nativeOrder())
-                    .asFloatBuffer()
-                normByteBuf.put(data.normals).position(0)
-                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, normVbo)
-                GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, data.normals.size * 4, normByteBuf, GLES30.GL_STATIC_DRAW)
-            }
-
-            // Indices
             val indexByteSize = when (data.indexType) {
                 GLES30.GL_UNSIGNED_BYTE -> 1
                 GLES30.GL_UNSIGNED_SHORT -> 2
@@ -282,35 +397,26 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             }
             val idxBuf = when (data.indexType) {
                 GLES30.GL_UNSIGNED_BYTE -> {
-                    val buf = ByteBuffer.allocateDirect(data.indices.size)
-                        .order(ByteOrder.nativeOrder())
+                    val buf = ByteBuffer.allocateDirect(data.indices.size).order(ByteOrder.nativeOrder())
                     for (i in data.indices) buf.put(i.toByte())
-                    buf.position(0)
-                    buf
+                    buf.position(0); buf
                 }
                 GLES30.GL_UNSIGNED_SHORT -> {
-                    val buf = ByteBuffer.allocateDirect(data.indices.size * 2)
-                        .order(ByteOrder.nativeOrder())
-                        .asShortBuffer()
+                    val buf = ByteBuffer.allocateDirect(data.indices.size * 2).order(ByteOrder.nativeOrder()).asShortBuffer()
                     for (i in data.indices) buf.put(i.toShort())
-                    buf.position(0)
-                    buf
+                    buf.position(0); buf
                 }
                 else -> {
-                    val buf = ByteBuffer.allocateDirect(data.indices.size * 4)
-                        .order(ByteOrder.nativeOrder())
-                        .asIntBuffer()
+                    val buf = ByteBuffer.allocateDirect(data.indices.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
                     buf.put(data.indices).position(0)
                     buf
                 }
             }
             GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ibo)
             GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, data.indices.size * indexByteSize, idxBuf, GLES30.GL_STATIC_DRAW)
-
             indexCount = data.indices.size
             indexType = data.indexType
 
-            // Texture
             if (data.textureBitmap != null) {
                 val tex = IntArray(1)
                 GLES30.glGenTextures(1, tex, 0)
@@ -322,7 +428,14 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             }
         }
 
-        fun draw(program: Int, mvpMatrix: FloatArray) {
+        private fun uploadFloatBuffer(vbo: Int, arr: FloatArray) {
+            val buf = ByteBuffer.allocateDirect(arr.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            buf.put(arr).position(0)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo)
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, arr.size * 4, buf, GLES30.GL_STATIC_DRAW)
+        }
+
+        fun draw(program: Int, mvpMatrix: FloatArray, boneMatrices: FloatArray, hasSkin: Boolean) {
             GLES30.glUseProgram(program)
 
             val mvpLoc = GLES30.glGetUniformLocation(program, "uMVP")
@@ -348,6 +461,26 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
                 }
             }
 
+            if (hasSkin && data.joints != null && data.weights != null) {
+                val jointLoc = GLES30.glGetAttribLocation(program, "aJoint")
+                if (jointLoc >= 0) {
+                    GLES30.glEnableVertexAttribArray(jointLoc)
+                    GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, jointVbo)
+                    GLES30.glVertexAttribPointer(jointLoc, 4, GLES30.GL_FLOAT, false, 0, 0)
+                }
+                val weightLoc = GLES30.glGetAttribLocation(program, "aWeight")
+                if (weightLoc >= 0) {
+                    GLES30.glEnableVertexAttribArray(weightLoc)
+                    GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, weightVbo)
+                    GLES30.glVertexAttribPointer(weightLoc, 4, GLES30.GL_FLOAT, false, 0, 0)
+                }
+                val bonesLoc = GLES30.glGetUniformLocation(program, "uBones")
+                if (bonesLoc >= 0) {
+                    val numBones = kotlin.math.min(data.skin?.joints?.size ?: 0, MAX_BONES)
+                    GLES30.glUniformMatrix4fv(bonesLoc, numBones, false, boneMatrices, 0)
+                }
+            }
+
             if (texId != 0) {
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texId)
@@ -370,11 +503,17 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
                 val uvLoc = GLES30.glGetAttribLocation(program, "aTexCoord")
                 if (uvLoc >= 0) GLES30.glDisableVertexAttribArray(uvLoc)
             }
+            if (hasSkin && data.joints != null) {
+                val jointLoc = GLES30.glGetAttribLocation(program, "aJoint")
+                if (jointLoc >= 0) GLES30.glDisableVertexAttribArray(jointLoc)
+                val weightLoc = GLES30.glGetAttribLocation(program, "aWeight")
+                if (weightLoc >= 0) GLES30.glDisableVertexAttribArray(weightLoc)
+            }
         }
 
         fun destroy() {
-            val bufs = intArrayOf(posVbo, uvVbo, normVbo, ibo)
-            GLES30.glDeleteBuffers(4, bufs, 0)
+            val bufs = intArrayOf(posVbo, uvVbo, normVbo, jointVbo, weightVbo, ibo)
+            GLES30.glDeleteBuffers(6, bufs, 0)
             if (texId != 0) {
                 val tex = intArrayOf(texId)
                 GLES30.glDeleteTextures(1, tex, 0)

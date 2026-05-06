@@ -149,10 +149,11 @@ class VrmOverlayActivity : ComponentActivity() {
                 }
                 Log.d(TAG, "Loading VRM: ${vrmFile.absolutePath}, size=${vrmFile.length()}")
                 val bytes = vrmFile.readBytes()
-                val meshes = GltfParser.parse(bytes)
+                val result = GltfParser.parse(bytes)
                 withContext(Dispatchers.Main) {
-                    if (meshes != null) {
-                        renderer.setMeshes(meshes)
+                    if (result != null) {
+                        val (root, meshes) = result
+                        renderer.loadModel(root, meshes)
                         Log.d(TAG, "VRM loaded: ${meshes.size} meshes")
                     } else {
                         Log.e(TAG, "Failed to parse VRM")

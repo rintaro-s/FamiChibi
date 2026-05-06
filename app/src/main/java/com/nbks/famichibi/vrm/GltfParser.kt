@@ -14,7 +14,7 @@ class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     companion object {
-        fun parse(glbBytes: ByteArray): List<MeshData>? {
+        fun parse(glbBytes: ByteArray): Pair<GltfRoot, List<MeshData>>? {
             val (jsonObj, bin) = VrmGlbParser.parseGlb(glbBytes) ?: return null
             val root = try {
                 Json { ignoreUnknownKeys = true; isLenient = true }
@@ -23,7 +23,8 @@ class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
                 Log.e(TAG, "Failed to decode GLTF JSON", e)
                 return null
             }
-            return GltfParser(root, bin).parseMeshes()
+            val meshes = GltfParser(root, bin).parseMeshes()
+            return root to meshes
         }
     }
 
@@ -46,6 +47,14 @@ class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
                     val normAcc = normAccIdx?.let { root.accessors?.getOrNull(it) }
                     val normals = normAcc?.let { readFloatArray(it, 3) }
 
+                    val jointAccIdx = prim.attributes["JOINTS_0"]
+                    val jointAcc = jointAccIdx?.let { root.accessors?.getOrNull(it) }
+                    val joints = jointAcc?.let { readJointArray(it) }
+
+                    val weightAccIdx = prim.attributes["WEIGHTS_0"]
+                    val weightAcc = weightAccIdx?.let { root.accessors?.getOrNull(it) }
+                    val weights = weightAcc?.let { readFloatArray(it, 4) }
+
                     val idxAccIdx = prim.indices ?: continue
                     val idxAcc = root.accessors?.getOrNull(idxAccIdx) ?: continue
                     val (indices, indexType) = readIndexArray(idxAcc)
@@ -56,16 +65,33 @@ class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
                         ?: floatArrayOf(1f, 1f, 1f, 1f)
                     val doubleSided = material?.doubleSided ?: false
 
+                    val skinData = meshIdx.let { meshIndex ->
+                        val nodeWithSkin = root.nodes?.indexOfFirst { it.mesh == meshIndex && it.skin != null }
+                        if (nodeWithSkin != null && nodeWithSkin >= 0) {
+                            val skinIdx = root.nodes!![nodeWithSkin].skin ?: return@let null
+                            val skin = root.skins?.getOrNull(skinIdx) ?: return@let null
+                            val ibmAcc = root.accessors?.getOrNull(skin.inverseBindMatrices) ?: return@let null
+                            val ibmArray = readMatrixArray(ibmAcc)
+                            SkinData(
+                                joints = skin.joints.toIntArray(),
+                                inverseBindMatrices = ibmArray,
+                            )
+                        } else null
+                    }
+
                     meshes.add(
                         MeshData(
                             positions = positions,
                             normals = normals,
                             uvs = uvs,
+                            joints = joints,
+                            weights = weights,
                             indices = indices,
                             indexType = indexType,
                             textureBitmap = texture,
                             baseColorFactor = baseColorFactor,
                             doubleSided = doubleSided,
+                            skin = skinData,
                         )
                     )
                     Log.d(TAG, "Parsed mesh $meshIdx prim $primIdx: ${positions.size / 3} verts, ${indices.size} indices")
@@ -118,7 +144,46 @@ class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val count = accessor.count * expectedComponents
         val result = FloatArray(count)
-        for (i in 0 until count) {
+        when (accessor.componentType) {
+            5126 -> { // FLOAT
+                for (i in 0 until count) result[i] = buffer.getFloat()
+            }
+            5121 -> { // UNSIGNED_BYTE normalized
+                for (i in 0 until count) result[i] = (buffer.get().toInt() and 0xFF) / 255f
+            }
+            5123 -> { // UNSIGNED_SHORT normalized
+                for (i in 0 until count) result[i] = (buffer.getShort().toInt() and 0xFFFF) / 65535f
+            }
+            else -> throw IllegalArgumentException("Unsupported componentType for float array: ${accessor.componentType}")
+        }
+        return result
+    }
+
+    private fun readJointArray(accessor: GltfAccessor): FloatArray {
+        val bvIdx = accessor.bufferView ?: throw IllegalArgumentException("Accessor missing bufferView")
+        val bytes = readBufferBytes(bvIdx, accessor)
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = accessor.count * 4
+        val result = FloatArray(count)
+        when (accessor.componentType) {
+            5121 -> { // UNSIGNED_BYTE
+                for (i in 0 until count) result[i] = (buffer.get().toInt() and 0xFF).toFloat()
+            }
+            5123 -> { // UNSIGNED_SHORT
+                for (i in 0 until count) result[i] = (buffer.getShort().toInt() and 0xFFFF).toFloat()
+            }
+            else -> throw IllegalArgumentException("Unsupported joint componentType: ${accessor.componentType}")
+        }
+        return result
+    }
+
+    private fun readMatrixArray(accessor: GltfAccessor): FloatArray {
+        val bvIdx = accessor.bufferView ?: throw IllegalArgumentException("Accessor missing bufferView")
+        val bytes = readBufferBytes(bvIdx, accessor)
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val numMatrices = accessor.count
+        val result = FloatArray(numMatrices * 16)
+        for (i in 0 until numMatrices * 16) {
             result[i] = buffer.getFloat()
         }
         return result
