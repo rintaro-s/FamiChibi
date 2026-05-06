@@ -17,6 +17,7 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
+        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -35,8 +36,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".overlay.VrmOverlayActivity"
+            android:theme="@style/Theme.FamiChibi.Transparent"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.nbks.famichibi.overlay" />
+
         <service
-            android:name=".overlay.OverlayService"
+            android:name=".overlay.VrmOverlayService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse" />

@@ -28,7 +28,8 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.nbks.famichibi.data.AgentConfig
 import com.nbks.famichibi.data.DecorationItem
 import com.nbks.famichibi.data.PreferencesRepository
-import com.nbks.famichibi.overlay.OverlayService
+import com.nbks.famichibi.overlay.VrmOverlayActivity
+import com.nbks.famichibi.overlay.VrmOverlayService
 import com.nbks.famichibi.ui.theme.FamiChibiTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -77,7 +78,7 @@ fun SettingsScreen(
     var roomId by remember { mutableStateOf("family-room-001") }
     var userName by remember { mutableStateOf("お兄ちゃん") }
     var vrmPath by remember { mutableStateOf("") }
-    var isOverlayRunning by remember { mutableStateOf(OverlayService.isRunning(context)) }
+    var isOverlayRunning by remember { mutableStateOf(VrmOverlayService.isRunning(context)) }
     var showAgentDialog by remember { mutableStateOf(false) }
     var showDecoDialog by remember { mutableStateOf(false) }
     var agents by remember { mutableStateOf(listOf<AgentConfig>()) }
@@ -95,7 +96,7 @@ fun SettingsScreen(
     // Refresh overlay running state periodically
     LaunchedEffect(Unit) {
         while (true) {
-            isOverlayRunning = OverlayService.isRunning(context)
+            isOverlayRunning = VrmOverlayService.isRunning(context)
             kotlinx.coroutines.delay(1000)
         }
     }
@@ -291,7 +292,7 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             notificationPermission?.launchPermissionRequest()
-                            OverlayService.start(context)
+                            VrmOverlayService.start(context)
                             isOverlayRunning = true
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -301,7 +302,8 @@ fun SettingsScreen(
                     }
                     OutlinedButton(
                         onClick = {
-                            OverlayService.stop(context)
+                            VrmOverlayService.stop(context)
+                            VrmOverlayActivity.stop(context)
                             isOverlayRunning = false
                         },
                         modifier = Modifier.fillMaxWidth(),
