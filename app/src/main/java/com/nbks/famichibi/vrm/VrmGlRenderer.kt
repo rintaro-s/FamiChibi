@@ -56,8 +56,9 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
     private var surfaceWidth: Int = 1
     private var surfaceHeight: Int = 1
 
-    var autoRotate = true
-    private var rotationAngle = 0f
+    var rotationY = 0f
+    var isWalking = false
+    private var walkPhase = 0f
     private var needsMeshUpdate = false
     private var pendingMeshes: List<MeshData>? = null
 
@@ -149,7 +150,7 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             return
         }
 
-        Matrix.setLookAtM(viewMatrix, 0, 0f, 1f, 3f, 0f, 0.8f, 0f, 0f, 1f, 0f)
+        Matrix.setLookAtM(viewMatrix, 0, 0f, 0.5f, 2.5f, 0f, 0f, 0f, 0f, 1f, 0f)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -169,12 +170,17 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
         if (meshRenderers.isEmpty()) return
 
-        if (autoRotate) {
-            rotationAngle += 0.5f
+        Matrix.setIdentityM(tempMatrix, 0)
+
+        // Walking bounce
+        if (isWalking) {
+            walkPhase += 0.2f
+            val bounce = kotlin.math.sin(walkPhase) * 0.06f
+            Matrix.translateM(tempMatrix, 0, 0f, bounce, 0f)
         }
 
-        Matrix.setIdentityM(tempMatrix, 0)
-        Matrix.rotateM(tempMatrix, 0, rotationAngle, 0f, 1f, 0f)
+        // Face movement direction (Y-axis rotation)
+        Matrix.rotateM(tempMatrix, 0, rotationY, 0f, 1f, 0f)
         Matrix.multiplyMM(tempMatrix, 0, tempMatrix, 0, modelMatrix, 0)
 
         Matrix.multiplyMM(mvpMatrix, 0, viewMatrix, 0, tempMatrix, 0)
