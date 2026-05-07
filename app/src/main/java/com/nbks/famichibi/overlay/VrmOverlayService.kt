@@ -115,7 +115,7 @@ class VrmOverlayService : Service() {
             if (dist < 5f) {
                 if (isMoving) {
                     isMoving = false
-                    renderer?.isWalking = false
+                    renderer?.animationState = VrmGlRenderer.AnimationState.IDLE
                     serviceScope.launch {
                         delay(500L + kotlin.random.Random.nextLong(2000))
                         pickNewTarget()
@@ -123,7 +123,7 @@ class VrmOverlayService : Service() {
                 }
             } else {
                 isMoving = true
-                renderer?.isWalking = true
+                renderer?.animationState = VrmGlRenderer.AnimationState.WALK
                 val moveDist = moveSpeed * deltaSec
                 val ratio = if (dist > 0f) moveDist / dist else 0f
                 currentX += dx * kotlin.math.min(ratio, 1f)
@@ -146,7 +146,7 @@ class VrmOverlayService : Service() {
         targetX = kotlin.random.Random.nextInt(0, screenWidth - viewW).toFloat()
         targetY = kotlin.random.Random.nextInt(0, screenHeight - viewH).toFloat()
         isMoving = true
-        renderer?.isWalking = true
+        renderer?.animationState = VrmGlRenderer.AnimationState.WALK
     }
 
     override fun onCreate() {
@@ -230,7 +230,7 @@ class VrmOverlayService : Service() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     isDragging = true
-                    renderer?.isWalking = false
+                    renderer?.animationState = VrmGlRenderer.AnimationState.IDLE
                     startRawX = event.rawX
                     startRawY = event.rawY
                     initialX = params.x
