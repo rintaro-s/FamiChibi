@@ -11,14 +11,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
@@ -28,15 +35,29 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.nbks.famichibi.data.AgentConfig
 import com.nbks.famichibi.data.DecorationItem
 import com.nbks.famichibi.data.PreferencesRepository
+import com.nbks.famichibi.network.DiscoveredServer
+import com.nbks.famichibi.network.LanDiscovery
 import com.nbks.famichibi.overlay.VrmOverlayActivity
 import com.nbks.famichibi.overlay.VrmOverlayService
 import com.nbks.famichibi.ui.theme.FamiChibiTheme
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +70,22 @@ class MainActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
-                    snackbarHost = { SnackbarHost(snackbarHostState) }
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    topBar = {
+                        CenterAlignedTopAppBar(
+                            title = {
+                                Text(
+                                    "FamiChibi",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
                 ) { innerPadding ->
                     SettingsScreen(
                         modifier = Modifier.padding(innerPadding),
@@ -62,7 +98,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
+@Serializable
+data class RoomInfo(
+    val id: String,
+    val name: String,
+    val has_password: Boolean,
+    val user_count: Int,
+    val created_at: String
+)
+
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
+@Suppress("OPT_IN_IS_NOT_ENABLED")
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
@@ -72,25 +118,55 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
-    val snackbarHostState = remember { SnackbarHostState() }
 
     var serverUrl by remember { mutableStateOf("http://10.0.2.2:8000") }
-    var roomId by remember { mutableStateOf("family-room-001") }
+    var roomId by remember { mutableStateOf("") }
+    var roomName by remember { mutableStateOf("") }
     var userName by remember { mutableStateOf("お兄ちゃん") }
+    var userId by remember { mutableStateOf("") }
     var vrmPath by remember { mutableStateOf("") }
+    var myVrmPath by remember { mutableStateOf("") }
     var isOverlayRunning by remember { mutableStateOf(VrmOverlayService.isRunning(context)) }
     var showAgentDialog by remember { mutableStateOf(false) }
     var showDecoDialog by remember { mutableStateOf(false) }
     var agents by remember { mutableStateOf(listOf<AgentConfig>()) }
     var decorations by remember { mutableStateOf(listOf<DecorationItem>()) }
 
+    // LAN Discovery
+    val lanDiscovery = remember { LanDiscovery() }
+    var discoveredServers by remember { mutableStateOf(listOf<DiscoveredServer>()) }
+    var isDiscovering by remember { mutableStateOf(false) }
+
+    // Room management
+    var rooms by remember { mutableStateOf(listOf<RoomInfo>()) }
+    var isLoadingRooms by remember { mutableStateOf(false) }
+    var showCreateRoomDialog by remember { mutableStateOf(false) }
+    var showJoinRoomDialog by remember { mutableStateOf(false) }
+    var selectedRoom by remember { mutableStateOf<RoomInfo?>(null) }
+    var joinPassword by remember { mutableStateOf("") }
+
+    val httpClient = remember {
+        HttpClient(CIO) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         serverUrl = prefs.serverUrl.first()
         roomId = prefs.roomId.first()
         userName = prefs.userName.first()
+        userId = prefs.userId.first().ifEmpty { UUID.randomUUID().toString().also { prefs.setUserId(it) } }
         vrmPath = prefs.vrmPath.first()
+        myVrmPath = prefs.myVrmPath.first()
         agents = prefs.agents.first()
         decorations = prefs.decorations.first()
+    }
+
+    // Observe discovered servers
+    LaunchedEffect(Unit) {
+        lanDiscovery.servers.collect { discoveredServers = it }
     }
 
     // Refresh overlay running state periodically
@@ -112,10 +188,66 @@ fun SettingsScreen(
             scope.launch {
                 val path = copyVrmToInternal(context, it)
                 if (path != null) {
-                    prefs.setVrmPath(path)
-                    vrmPath = path
+                    prefs.setMyVrmPath(path)
+                    myVrmPath = path
                 }
             }
+        }
+    }
+
+    suspend fun fetchRooms() {
+        isLoadingRooms = true
+        try {
+            val response = httpClient.get("$serverUrl/rooms")
+            if (response.status == HttpStatusCode.OK) {
+                val body = response.bodyAsText()
+                rooms = Json.decodeFromString(body)
+            }
+        } catch (e: Exception) {
+            snackbarHostState.showSnackbar("部屋一覧の取得に失敗しました")
+        } finally {
+            isLoadingRooms = false
+        }
+    }
+
+    suspend fun createRoom(name: String, password: String) {
+        try {
+            val response = httpClient.submitForm(
+                url = "$serverUrl/rooms",
+                formParameters = Parameters.build {
+                    append("name", name)
+                    append("password", password)
+                }
+            )
+            if (response.status == HttpStatusCode.OK) {
+                snackbarHostState.showSnackbar("部屋を作成しました")
+                fetchRooms()
+            }
+        } catch (e: Exception) {
+            snackbarHostState.showSnackbar("部屋の作成に失敗しました")
+        }
+    }
+
+    suspend fun joinRoom(room: RoomInfo, password: String) {
+        try {
+            val response = httpClient.submitForm(
+                url = "$serverUrl/rooms/${room.id}/join",
+                formParameters = Parameters.build {
+                    append("user_id", userId)
+                    append("user_name", userName)
+                    append("password", password)
+                }
+            )
+            if (response.status == HttpStatusCode.OK) {
+                prefs.setRoomId(room.id)
+                roomId = room.id
+                roomName = room.name
+                snackbarHostState.showSnackbar("${room.name}に参加しました")
+            } else {
+                snackbarHostState.showSnackbar("参加に失敗しました")
+            }
+        } catch (e: Exception) {
+            snackbarHostState.showSnackbar("参加に失敗しました")
         }
     }
 
@@ -126,155 +258,216 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "⚙️ FamiChibi 設定",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
+        // Server Connection Card
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text("サーバー接続", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                }
 
-        // Connection Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("接続設定", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = serverUrl,
                     onValueChange = { serverUrl = it },
                     label = { Text("サーバーURL") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                OutlinedTextField(
-                    value = roomId,
-                    onValueChange = { roomId = it },
-                    label = { Text("部屋ID") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                prefs.setServerUrl(serverUrl)
+                                snackbarHostState.showSnackbar("サーバーを保存しました")
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("保存") }
+
+                    Button(
+                        onClick = {
+                            isDiscovering = true
+                            lanDiscovery.startDiscovery(scope)
+                            scope.launch {
+                                kotlinx.coroutines.delay(3500)
+                                isDiscovering = false
+                                lanDiscovery.stopDiscovery()
+                            }
+                        },
+                        enabled = !isDiscovering,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isDiscovering) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("自動検索")
+                    }
+                }
+
+                AnimatedVisibility(visible = discoveredServers.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("発見したサーバー:", style = MaterialTheme.typography.labelMedium)
+                        discoveredServers.forEach { server ->
+                            OutlinedCard(
+                                onClick = {
+                                    serverUrl = "http://${server.host}:${server.port}"
+                                    scope.launch { prefs.setServerUrl(serverUrl) }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(server.name, fontWeight = FontWeight.Medium)
+                                        Text("${server.host}:${server.port}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text("接続", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Room Card
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Videocam, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Text("部屋", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                }
+
                 OutlinedTextField(
                     value = userName,
                     onValueChange = { userName = it },
                     label = { Text("あなたの名前") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Button(
-                    onClick = {
-                        scope.launch {
-                            prefs.setServerUrl(serverUrl)
-                            prefs.setRoomId(roomId)
-                            prefs.setUserName(userName)
-                            snackbarHostState.showSnackbar("設定を保存しました")
+
+                if (roomId.isNotEmpty()) {
+                    AssistChip(
+                        onClick = { },
+                        label = { Text("参加中: $roomName ($roomId)") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                prefs.setUserName(userName)
+                                if (userId.isEmpty()) {
+                                    userId = UUID.randomUUID().toString()
+                                    prefs.setUserId(userId)
+                                }
+                                fetchRooms()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("部屋一覧") }
+
+                    OutlinedButton(
+                        onClick = { showCreateRoomDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("部屋を作る") }
+                }
+
+                AnimatedVisibility(visible = isLoadingRooms) {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    }
+                }
+
+                AnimatedVisibility(visible = rooms.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rooms.forEach { room ->
+                            OutlinedCard(
+                                onClick = {
+                                    selectedRoom = room
+                                    if (room.has_password) {
+                                        showJoinRoomDialog = true
+                                    } else {
+                                        scope.launch { joinRoom(room, "") }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(room.name, fontWeight = FontWeight.Medium)
+                                            if (room.has_password) {
+                                                Text("🔒", style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                        Text("${room.user_count}人在室", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text("参加", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
                         }
-                    },
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("保存")
+                    }
                 }
             }
         }
 
-        // VRM Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("アバター設定", style = MaterialTheme.typography.titleMedium)
+        // Avatar Card
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Text("アバター設定", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                }
+
                 Text(
-                    text = if (vrmPath.isNotEmpty()) "VRM: ${File(vrmPath).name}" else "VRM: デフォルト (AvatarSample_M.vrm)",
+                    text = if (myVrmPath.isNotEmpty()) "自分のVRM: ${File(myVrmPath).name}" else "自分のVRM: 未設定（デフォルト使用）",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vrmPicker.launch("*/*") }) {
-                        Text("VRMを読み込み")
+                        Text("VRMを選択")
                     }
                     OutlinedButton(
                         onClick = {
                             scope.launch {
-                                prefs.setVrmPath("")
-                                vrmPath = ""
+                                prefs.setMyVrmPath("")
+                                myVrmPath = ""
                             }
                         }
                     ) {
-                        Text("デフォルトに戻す")
+                        Text("クリア")
                     }
                 }
+
+                HorizontalDivider()
+
+                Text(
+                    text = if (vrmPath.isNotEmpty()) "表示VRM: ${File(vrmPath).name}" else "表示VRM: デフォルト",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text("オーバーレイに表示するVRM（自分用）", style = MaterialTheme.typography.bodySmall)
             }
         }
 
-        // AI Agent Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("AIエージェント", style = MaterialTheme.typography.titleMedium)
-                if (agents.isEmpty()) {
-                    Text("エージェントが設定されていません", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    agents.forEach { agent ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${agent.name} (${agent.personality})")
-                            TextButton(onClick = {
-                                scope.launch {
-                                    val updated = agents.filter { it.id != agent.id }
-                                    prefs.setAgents(updated)
-                                    agents = updated
-                                }
-                            }) {
-                                Text("削除")
-                            }
-                        }
-                    }
-                }
-                Button(onClick = { showAgentDialog = true }) {
-                    Text("エージェントを追加")
-                }
-            }
-        }
+        // Overlay Control Card
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("オーバーレイ制御", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
-        // Decoration Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("デコレーション", style = MaterialTheme.typography.titleMedium)
-                Text("アバターにリボンや王冠などを装着できます", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("ribbon", "heart", "crown", "flower").forEach { type ->
-                        Button(onClick = {
-                            scope.launch {
-                                val item = DecorationItem(
-                                    id = UUID.randomUUID().toString(),
-                                    type = type,
-                                    x = 100f,
-                                    y = 50f
-                                )
-                                val updated = decorations + item
-                                prefs.setDecorations(updated)
-                                decorations = updated
-                            }
-                        }) {
-                            Text(when(type) {
-                                "ribbon" -> "🎀"
-                                "heart" -> "❤️"
-                                "crown" -> "👑"
-                                "flower" -> "🌸"
-                                else -> "?"
-                            })
-                        }
-                    }
-                }
-                if (decorations.isNotEmpty()) {
-                    TextButton(onClick = {
-                        scope.launch {
-                            prefs.setDecorations(emptyList())
-                            decorations = emptyList()
-                        }
-                    }) {
-                        Text("すべて削除")
-                    }
-                }
-            }
-        }
-
-        // Overlay Control
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("オーバーレイ制御", style = MaterialTheme.typography.titleMedium)
                 if (!Settings.canDrawOverlays(context)) {
                     Button(
                         onClick = {
@@ -284,7 +477,8 @@ fun SettingsScreen(
                             )
                             context.startActivity(intent)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("画面オーバーレイ権限を許可")
                     }
@@ -319,57 +513,81 @@ fun SettingsScreen(
                         )
                     }
                 }
-                Text(
-                    "※「他のアプリの上に重ねて表示」を許可してください",
-                    style = MaterialTheme.typography.bodySmall
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
     }
 
-    if (showAgentDialog) {
-        var agentName by remember { mutableStateOf("") }
-        var personality by remember { mutableStateOf("") }
+    // Create Room Dialog
+    if (showCreateRoomDialog) {
+        var newRoomName by remember { mutableStateOf("") }
+        var newRoomPassword by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { showAgentDialog = false },
-            title = { Text("AIエージェントを追加") },
+            onDismissRequest = { showCreateRoomDialog = false },
+            title = { Text("部屋を作成") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
-                        value = agentName,
-                        onValueChange = { agentName = it },
-                        label = { Text("名前") }
+                        value = newRoomName,
+                        onValueChange = { newRoomName = it },
+                        label = { Text("部屋の名前") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = personality,
-                        onValueChange = { personality = it },
-                        label = { Text("性格 (ツンデレ/おしとやか/元気など)") }
+                        value = newRoomPassword,
+                        onValueChange = { newRoomPassword = it },
+                        label = { Text("パスワード（空欄で公開）") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        val agent = AgentConfig(
-                            id = UUID.randomUUID().toString(),
-                            name = agentName,
-                            personality = personality
-                        )
-                        val updated = agents + agent
-                        prefs.setAgents(updated)
-                        agents = updated
-                    }
-                    showAgentDialog = false
-                }) {
-                    Text("追加")
-                }
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            createRoom(newRoomName, newRoomPassword)
+                            showCreateRoomDialog = false
+                        }
+                    },
+                    enabled = newRoomName.isNotBlank()
+                ) { Text("作成") }
             },
             dismissButton = {
-                TextButton(onClick = { showAgentDialog = false }) {
-                    Text("キャンセル")
+                TextButton(onClick = { showCreateRoomDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
+    // Join Room Dialog
+    if (showJoinRoomDialog && selectedRoom != null) {
+        AlertDialog(
+            onDismissRequest = { showJoinRoomDialog = false },
+            title = { Text("${selectedRoom!!.name}に参加") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("パスワードを入力してください")
+                    OutlinedTextField(
+                        value = joinPassword,
+                        onValueChange = { joinPassword = it },
+                        label = { Text("パスワード") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            joinRoom(selectedRoom!!, joinPassword)
+                            showJoinRoomDialog = false
+                            joinPassword = ""
+                        }
+                    }
+                ) { Text("参加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJoinRoomDialog = false }) { Text("キャンセル") }
             }
         )
     }

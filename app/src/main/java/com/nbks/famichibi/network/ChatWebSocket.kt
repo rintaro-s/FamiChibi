@@ -13,12 +13,26 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 data class ChatMessage(
-    val id: String,
-    val sender: String,
-    val content: String,
-    val type: String,
-    val timestamp: String
+    val id: String = "",
+    val sender: String = "",
+    val sender_id: String = "",
+    val content: String = "",
+    val type: String = "user",
+    val timestamp: String = ""
 )
+
+data class RoomUser(
+    val user_id: String,
+    val user_name: String
+)
+
+sealed class ChatEvent {
+    data class Message(val msg: ChatMessage) : ChatEvent()
+    data class UserJoined(val userId: String, val userName: String, val users: List<RoomUser>) : ChatEvent()
+    data class UserLeft(val userId: String, val userName: String, val users: List<RoomUser>) : ChatEvent()
+    data class Joined(val roomId: String, val roomName: String, val userId: String, val users: List<RoomUser>) : ChatEvent()
+    data class Error(val message: String) : ChatEvent()
+}
 
 class ChatWebSocket {
     private val client = HttpClient(CIO) {
@@ -30,13 +44,19 @@ class ChatWebSocket {
 
     private var session: DefaultClientWebSocketSession? = null
     private var reconnectJob: Job? = null
-    private val _messages = MutableSharedFlow<ChatMessage>()
-    val messages: SharedFlow<ChatMessage> = _messages.asSharedFlow()
+    private val _events = MutableSharedFlow<ChatEvent>()
+    val events: SharedFlow<ChatEvent> = _events.asSharedFlow()
     private val _connectionState = MutableStateFlow(false)
-    val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+    val connectionState: StateFlow<Boolean> = _connectionState
+    private val _roomUsers = MutableStateFlow<List<RoomUser>>(emptyList())
+    val roomUsers: StateFlow<List<RoomUser>> = _roomUsers
 
-    fun connect(serverUrl: String, roomId: String) {
-        reconnectJob?.cancel()
+    var currentRoomId: String = ""
+        private set
+
+    fun connect(serverUrl: String, roomId: String, userId: String, userName: String, password: String = "") {
+        disconnect()
+        currentRoomId = roomId
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
                 try {
@@ -44,13 +64,22 @@ class ChatWebSocket {
                     client.webSocket("$wsUrl/ws/$roomId") {
                         session = this
                         _connectionState.value = true
+
+                        // Send join message first
+                        send(
+                            Json.encodeToString(
+                                JoinPayload.serializer(),
+                                JoinPayload("join", userId, userName, password)
+                            )
+                        )
+
                         for (frame in incoming) {
                             when (frame) {
                                 is Frame.Text -> {
                                     val text = frame.readText()
                                     try {
-                                        val msg = Json.decodeFromString<ChatMessage>(text)
-                                        _messages.emit(msg)
+                                        val msg = Json.decodeFromString(ServerMessage.serializer(), text)
+                                        handleServerMessage(msg)
                                     } catch (_: Exception) {
                                     }
                                 }
@@ -68,9 +97,59 @@ class ChatWebSocket {
         }
     }
 
+    private suspend fun handleServerMessage(msg: ServerMessage) {
+        when (msg.type) {
+            "joined" -> {
+                val users = msg.users?.map { RoomUser(it.user_id, it.user_name) } ?: emptyList()
+                _roomUsers.value = users
+                _events.emit(ChatEvent.Joined(
+                    roomId = msg.room_id ?: "",
+                    roomName = msg.room_name ?: "",
+                    userId = msg.user_id ?: "",
+                    users = users
+                ))
+            }
+            "user_joined" -> {
+                val users = msg.users?.map { RoomUser(it.user_id, it.user_name) } ?: emptyList()
+                _roomUsers.value = users
+                _events.emit(ChatEvent.UserJoined(
+                    userId = msg.user_id ?: "",
+                    userName = msg.user_name ?: "",
+                    users = users
+                ))
+            }
+            "user_left" -> {
+                val users = msg.users?.map { RoomUser(it.user_id, it.user_name) } ?: emptyList()
+                _roomUsers.value = users
+                _events.emit(ChatEvent.UserLeft(
+                    userId = msg.user_id ?: "",
+                    userName = msg.user_name ?: "",
+                    users = users
+                ))
+            }
+            "user", "agent" -> {
+                _events.emit(ChatEvent.Message(
+                    ChatMessage(
+                        id = msg.id ?: "",
+                        sender = msg.sender ?: "",
+                        sender_id = msg.sender_id ?: "",
+                        content = msg.content ?: "",
+                        type = msg.type,
+                        timestamp = msg.timestamp ?: ""
+                    )
+                ))
+            }
+            "error" -> {
+                _events.emit(ChatEvent.Error(msg.message ?: "Unknown error"))
+            }
+        }
+    }
+
     fun disconnect() {
         reconnectJob?.cancel()
         reconnectJob = null
+        currentRoomId = ""
+        _roomUsers.value = emptyList()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 session?.close()
@@ -83,9 +162,8 @@ class ChatWebSocket {
     fun sendMessage(sender: String, content: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val json = Json { ignoreUnknownKeys = true }
                 session?.send(
-                    json.encodeToString(
+                    Json.encodeToString(
                         MessagePayload.serializer(),
                         MessagePayload("message", sender, content)
                     )
@@ -96,9 +174,39 @@ class ChatWebSocket {
     }
 
     @Serializable
+    private data class JoinPayload(
+        val type: String,
+        val user_id: String,
+        val user_name: String,
+        val password: String = ""
+    )
+
+    @Serializable
     private data class MessagePayload(
         val type: String,
         val sender: String,
         val content: String
+    )
+
+    @Serializable
+    private data class ServerMessage(
+        val type: String = "",
+        val id: String? = null,
+        val sender: String? = null,
+        val sender_id: String? = null,
+        val content: String? = null,
+        val message: String? = null,
+        val timestamp: String? = null,
+        val room_id: String? = null,
+        val room_name: String? = null,
+        val user_id: String? = null,
+        val user_name: String? = null,
+        val users: List<ServerUser>? = null
+    )
+
+    @Serializable
+    private data class ServerUser(
+        val user_id: String,
+        val user_name: String
     )
 }

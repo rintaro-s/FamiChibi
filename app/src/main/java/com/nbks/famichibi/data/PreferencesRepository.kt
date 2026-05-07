@@ -39,15 +39,19 @@ class PreferencesRepository(private val context: Context) {
         val SERVER_URL = stringPreferencesKey("server_url")
         val ROOM_ID = stringPreferencesKey("room_id")
         val USER_NAME = stringPreferencesKey("user_name")
+        val USER_ID = stringPreferencesKey("user_id")
         val VRM_PATH = stringPreferencesKey("vrm_path")
+        val MY_VRM_PATH = stringPreferencesKey("my_vrm_path")
         val DECORATIONS = stringPreferencesKey("decorations")
         val AGENTS = stringPreferencesKey("agents")
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[SERVER_URL] ?: "http://10.0.2.2:8000" }
-    val roomId: Flow<String> = context.dataStore.data.map { it[ROOM_ID] ?: "family-room-001" }
+    val roomId: Flow<String> = context.dataStore.data.map { it[ROOM_ID] ?: "" }
     val userName: Flow<String> = context.dataStore.data.map { it[USER_NAME] ?: "お兄ちゃん" }
+    val userId: Flow<String> = context.dataStore.data.map { it[USER_ID] ?: "" }
     val vrmPath: Flow<String> = context.dataStore.data.map { it[VRM_PATH] ?: "" }
+    val myVrmPath: Flow<String> = context.dataStore.data.map { it[MY_VRM_PATH] ?: "" }
     val decorations: Flow<List<DecorationItem>> = context.dataStore.data.map {
         val str = it[DECORATIONS] ?: "[]"
         try {
@@ -77,8 +81,16 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[USER_NAME] = name }
     }
 
+    suspend fun setUserId(id: String) {
+        context.dataStore.edit { it[USER_ID] = id }
+    }
+
     suspend fun setVrmPath(path: String) {
         context.dataStore.edit { it[VRM_PATH] = path }
+    }
+
+    suspend fun setMyVrmPath(path: String) {
+        context.dataStore.edit { it[MY_VRM_PATH] = path }
     }
 
     suspend fun setDecorations(items: List<DecorationItem>) {

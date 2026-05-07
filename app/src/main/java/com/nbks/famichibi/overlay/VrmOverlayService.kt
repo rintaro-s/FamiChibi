@@ -18,12 +18,13 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import com.nbks.famichibi.MainActivity
 import com.nbks.famichibi.R
 import com.nbks.famichibi.data.PreferencesRepository
-import com.nbks.famichibi.network.ChatMessage
+import com.nbks.famichibi.network.ChatEvent
 import com.nbks.famichibi.network.ChatWebSocket
 import com.nbks.famichibi.vrm.GltfParser
 import com.nbks.famichibi.vrm.VrmGlRenderer
@@ -83,6 +84,22 @@ class VrmOverlayService : Service() {
     private var startRawY = 0f
     private var initialX = 0
     private var initialY = 0
+
+    // Multi-participant support
+    private data class ParticipantView(
+        val userId: String,
+        val userName: String,
+        val view: FrameLayout,
+        val glSurfaceView: GLSurfaceView,
+        val renderer: VrmGlRenderer,
+        val speechBubble: TextView,
+        val params: WindowManager.LayoutParams,
+        var currentX: Float = 0f,
+        var currentY: Float = 0f,
+    )
+    private val participants = mutableMapOf<String, ParticipantView>()
+    private var myUserId: String = ""
+    private var eventCollectionJob: kotlinx.coroutines.Job? = null
 
     private val choreographer = Choreographer.getInstance()
     private var isDragging = false
@@ -179,6 +196,10 @@ class VrmOverlayService : Service() {
     }
 
     private fun setupOverlay() {
+        if (overlayView != null) {
+            Log.d(TAG, "Overlay already set up, skipping")
+            return
+        }
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
@@ -270,8 +291,14 @@ class VrmOverlayService : Service() {
     private fun loadVrm(renderer: VrmGlRenderer) {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                val userVrm = prefs.vrmPath.first()
-                val vrmFile = if (userVrm.isNotEmpty()) File(userVrm) else copyAssetVrm()
+                // Prefer myVrmPath (self avatar), fall back to vrmPath (legacy), then default asset
+                val myVrm = prefs.myVrmPath.first()
+                val legacyVrm = prefs.vrmPath.first()
+                val vrmFile = when {
+                    myVrm.isNotEmpty() -> File(myVrm)
+                    legacyVrm.isNotEmpty() -> File(legacyVrm)
+                    else -> copyAssetVrm()
+                }
                 if (!vrmFile.exists()) {
                     Log.e(TAG, "VRM file not found: ${vrmFile.absolutePath}")
                     return@launch
@@ -311,63 +338,113 @@ class VrmOverlayService : Service() {
     }
 
     private fun connectWebSocket() {
+        // Clear existing participants before reconnecting
+        participants.keys.toList().forEach { removeParticipant(it) }
+        chatWebSocket.disconnect()
+        eventCollectionJob?.cancel()
+
         serviceScope.launch {
             try {
                 val serverUrl = prefs.serverUrl.first()
                 val roomId = prefs.roomId.first()
-                chatWebSocket.connect(serverUrl, roomId)
+                val uid = prefs.userId.first().ifEmpty { java.util.UUID.randomUUID().toString().also { prefs.setUserId(it) } }
+                myUserId = uid
+                val userName = prefs.userName.first()
+                Log.d(TAG, "Connecting WebSocket: userId=$uid, roomId=$roomId")
+                if (roomId.isNotEmpty()) {
+                    chatWebSocket.connect(serverUrl, roomId, uid, userName, "")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "WebSocket connect failed", e)
             }
         }
 
-        serviceScope.launch {
-            chatWebSocket.messages.collect { message ->
-                handleMessage(message)
+        eventCollectionJob = serviceScope.launch {
+            chatWebSocket.events.collect { event ->
+                handleEvent(event)
             }
         }
     }
 
-    private fun handleMessage(message: ChatMessage) {
-        serviceScope.launch(Dispatchers.Main) {
-            showMessage(message.sender, message.content)
+    private fun handleEvent(event: ChatEvent) {
+        if (myUserId.isEmpty()) {
+            Log.w(TAG, "Ignoring event because myUserId is not set yet: $event")
+            return
         }
-
-        val expression = when {
-            "がんば" in message.content || "応援" in message.content || "頑張" in message.content -> "happy"
-            "大丈夫" in message.content || "心配" in message.content -> "relaxed"
-            "すごい" in message.content || "えらい" in message.content -> "surprised"
-            "バカ" in message.content || "あほ" in message.content || "怒" in message.content -> "angry"
-            else -> "happy"
-        }
-
-        serviceScope.launch {
-            delay(4000)
+        Log.d(TAG, "handleEvent: type=${event.javaClass.simpleName}, myUserId=$myUserId, participants=${participants.keys}")
+        when (event) {
+            is ChatEvent.Message -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    val senderId = event.msg.sender_id
+                    val senderName = event.msg.sender
+                    val content = event.msg.content
+                    when {
+                        senderId == myUserId -> {
+                            val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                            bubble?.let { showBubbleOn(it, senderName, content) }
+                        }
+                        participants.containsKey(senderId) -> {
+                            participants[senderId]?.speechBubble?.let { showBubbleOn(it, senderName, content) }
+                        }
+                        else -> {
+                            val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                            bubble?.let { showBubbleOn(it, senderName, content) }
+                        }
+                    }
+                }
+            }
+            is ChatEvent.UserJoined -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが参加しました") }
+                    if (event.userId != myUserId && !participants.containsKey(event.userId)) {
+                        addParticipant(event.userId, event.userName)
+                    }
+                }
+            }
+            is ChatEvent.UserLeft -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが退出しました") }
+                    removeParticipant(event.userId)
+                }
+            }
+            is ChatEvent.Joined -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    event.users.filter { it.user_id != myUserId && !participants.containsKey(it.user_id) }
+                        .forEach { addParticipant(it.user_id, it.user_name) }
+                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    bubble?.let { showBubbleOn(it, "システム", "${event.roomName}に参加しました") }
+                }
+            }
+            is ChatEvent.Error -> {
+                Log.e(TAG, "Chat error: ${event.message}")
+            }
         }
     }
 
-    private fun showMessage(sender: String, message: String) {
-        val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble) ?: return
+    private fun showBubbleOn(bubble: TextView, sender: String, message: String) {
         bubble.text = "$sender\n$message"
         bubble.visibility = View.VISIBLE
         bubble.alpha = 0f
-        bubble.translationY = 20f
+        bubble.translationY = 10f
+        bubble.animate().cancel()
         bubble.animate()
             .alpha(1f)
             .translationY(0f)
-            .setDuration(300)
+            .setDuration(200)
             .start()
 
-        serviceScope.launch {
-            delay(6000)
-            withContext(Dispatchers.Main) {
+        bubble.removeCallbacks(null)
+        bubble.postDelayed({
+            if (bubble.visibility == View.VISIBLE) {
                 bubble.animate()
                     .alpha(0f)
-                    .setDuration(300)
+                    .setDuration(200)
                     .withEndAction { bubble.visibility = View.GONE }
                     .start()
             }
-        }
+        }, 4000)
     }
 
     private fun createNotificationChannel() {
@@ -408,6 +485,138 @@ class VrmOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun addParticipant(userId: String, userName: String) {
+        if (participants.containsKey(userId)) return
+        if (participants.size >= 3) {
+            Log.w(TAG, "Max participants reached, ignoring $userName")
+            return
+        }
+        val wm = windowManager ?: return
+
+        val frame = FrameLayout(this)
+        val glView = GLSurfaceView(this)
+        glView.setEGLContextClientVersion(3)
+        glView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+        glView.holder.setFormat(PixelFormat.TRANSLUCENT)
+        val r = VrmGlRenderer()
+        glView.setRenderer(r)
+        glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        frame.addView(glView, FrameLayout.LayoutParams(dpToPx(90), dpToPx(120)))
+
+        // Speech bubble for this participant
+        val bubble = TextView(this).apply {
+            textSize = 12f
+            setTextColor(android.graphics.Color.BLACK)
+            background = resources.getDrawable(R.drawable.speech_bubble_bg, null)
+            gravity = android.view.Gravity.CENTER
+            maxWidth = dpToPx(180)
+            minWidth = dpToPx(80)
+            setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
+            visibility = View.GONE
+        }
+        val bubbleParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dpToPx(4)
+        }
+        frame.addView(bubble, bubbleParams)
+
+        val params = WindowManager.LayoutParams(
+            dpToPx(90),
+            dpToPx(140),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.START or Gravity.TOP
+
+        // Place to the right of existing participants or main overlay
+        val baseX = layoutParams?.x ?: 0
+        val baseY = layoutParams?.y ?: 0
+        val offsetX = dpToPx(100) * (participants.size + 1)
+        params.x = baseX + offsetX
+        params.y = baseY
+
+        val pv = ParticipantView(
+            userId = userId,
+            userName = userName,
+            view = frame,
+            glSurfaceView = glView,
+            renderer = r,
+            speechBubble = bubble,
+            params = params,
+            currentX = (baseX + offsetX).toFloat(),
+            currentY = baseY.toFloat()
+        )
+        participants[userId] = pv
+
+        wm.addView(frame, params)
+        setupDragForParticipant(pv)
+        loadVrmForRenderer(r)
+        Log.d(TAG, "Added participant: $userName at (${params.x}, ${params.y})")
+    }
+
+    private fun removeParticipant(userId: String) {
+        val pv = participants.remove(userId) ?: return
+        try {
+            pv.glSurfaceView.onPause()
+            windowManager?.removeView(pv.view)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing participant view", e)
+        }
+        Log.d(TAG, "Removed participant: ${pv.userName}")
+    }
+
+    private fun setupDragForParticipant(pv: ParticipantView) {
+        pv.view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    initialX = pv.params.x
+                    initialY = pv.params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - startRawX).toInt()
+                    val dy = (event.rawY - startRawY).toInt()
+                    pv.params.x = initialX + dx
+                    pv.params.y = initialY + dy
+                    pv.currentX = pv.params.x.toFloat()
+                    pv.currentY = pv.params.y.toFloat()
+                    windowManager?.updateViewLayout(pv.view, pv.params)
+                    true
+                }
+                MotionEvent.ACTION_UP -> true
+                else -> false
+            }
+        }
+    }
+
+    private fun loadVrmForRenderer(renderer: VrmGlRenderer) {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val vrmFile = copyAssetVrm()
+                if (!vrmFile.exists()) {
+                    Log.e(TAG, "Default VRM not found")
+                    return@launch
+                }
+                val bytes = vrmFile.readBytes()
+                val result = GltfParser.parse(bytes)
+                withContext(Dispatchers.Main) {
+                    if (result != null) {
+                        renderer.loadModel(result.first, result.second)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load default VRM for participant", e)
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         choreographer.removeFrameCallback(moveCallback)
@@ -417,6 +626,13 @@ class VrmOverlayService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error removing overlay", e)
         }
+        participants.values.forEach { pv ->
+            try {
+                pv.glSurfaceView.onPause()
+                windowManager?.removeView(pv.view)
+            } catch (_: Exception) {}
+        }
+        participants.clear()
         try {
             chatWebSocket.disconnect()
         } catch (e: Exception) {
