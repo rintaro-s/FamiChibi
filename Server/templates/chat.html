@@ -199,8 +199,6 @@ function sendMessage() {
         alert('接続が切れています。ページを更新してください。');
         return;
     }
-    // Optimistically show own message immediately
-    addMsg({sender: myName, sender_id: myId, content: t, type: 'user'});
     ws.send(JSON.stringify({type:'message', sender:myName, content:t}));
     $('messageInput').value = '';
 }

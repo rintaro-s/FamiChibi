@@ -120,6 +120,10 @@ class VrmOverlayActivity : ComponentActivity() {
         glSurfaceView.setRenderer(renderer)
         glSurfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
+        // 自分のアバターは非表示（自分以外を擬人化するため）
+        glSurfaceView.visibility = View.GONE
+        decorationContainer.visibility = View.GONE
+
         setupDrag()
         speechBubble.visibility = View.GONE
 
@@ -185,6 +189,8 @@ class VrmOverlayActivity : ComponentActivity() {
     private fun setupDrag() {
         val touchArea = findViewById<View>(android.R.id.content)
         touchArea.setOnTouchListener { _, event ->
+            // アバター非表示中はタッチをパススルー
+            if (glSurfaceView.visibility == View.GONE) return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     startRawX = event.rawX

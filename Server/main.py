@@ -5,6 +5,7 @@ import threading
 import uuid
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Form, Request, Query
@@ -13,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="FamiChibi Chat Server")
+BASE_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = BASE_DIR.parent
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,15 +107,23 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Ensure directories exist
-os.makedirs("static", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
+static_dir = BASE_DIR / "static"
+if not static_dir.exists():
+    static_dir = WORKSPACE_ROOT / "static"
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+template_dir = BASE_DIR / "templates"
+if not template_dir.exists():
+    template_dir = WORKSPACE_ROOT / "templates"
+
+os.makedirs(static_dir, exist_ok=True)
+os.makedirs(template_dir, exist_ok=True)
+
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Load chat.html content at startup
 _chat_html = ""
 try:
-    with open("templates/chat.html", "r", encoding="utf-8") as f:
+    with open(template_dir / "chat.html", "r", encoding="utf-8") as f:
         _chat_html = f.read()
 except Exception:
     pass
@@ -338,7 +349,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                     }
                     if room_id in rooms:
                         rooms[room_id]["messages"].append(message)
-                        await manager.broadcast(room_id, message)
+                        await manager.broadcast(room_id, message, exclude_ws=websocket)
                         
                         # Trigger agent replies
                         for agent in rooms[room_id].get("agents", []):

@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import android.os.Build
@@ -21,6 +23,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import com.nbks.famichibi.MainActivity
 import com.nbks.famichibi.R
 import com.nbks.famichibi.data.PreferencesRepository
@@ -35,6 +38,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -48,6 +52,8 @@ class VrmOverlayService : Service() {
         private const val TAG = "VrmOverlayService"
         private const val CHANNEL_ID = "famichibi_overlay"
         private const val NOTIFICATION_ID = 1
+        const val ACTION_SEND_CHAT = "com.nbks.famichibi.SEND_CHAT"
+        const val EXTRA_CHAT_REPLY = "chat_reply"
 
         fun start(context: Context) {
             val intent = Intent(context, VrmOverlayService::class.java)
@@ -71,7 +77,6 @@ class VrmOverlayService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val chatWebSocket = ChatWebSocket()
     private lateinit var prefs: PreferencesRepository
 
     private var windowManager: WindowManager? = null
@@ -96,10 +101,27 @@ class VrmOverlayService : Service() {
         val params: WindowManager.LayoutParams,
         var currentX: Float = 0f,
         var currentY: Float = 0f,
+        var targetX: Float = 0f,
+        var targetY: Float = 0f,
+        var isMoving: Boolean = false,
+        var isDragging: Boolean = false,
     )
     private val participants = mutableMapOf<String, ParticipantView>()
     private var myUserId: String = ""
     private var eventCollectionJob: kotlinx.coroutines.Job? = null
+
+    private val chatReplyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_SEND_CHAT) {
+                val results = RemoteInput.getResultsFromIntent(intent)
+                val message = results?.getCharSequence(EXTRA_CHAT_REPLY)?.toString()
+                if (!message.isNullOrBlank()) {
+                    val sender = runBlocking { prefs.userName.first() }
+                    ChatWebSocket.sendMessage(sender, message)
+                }
+            }
+        }
+    }
 
     private val choreographer = Choreographer.getInstance()
     private var isDragging = false
@@ -120,56 +142,67 @@ class VrmOverlayService : Service() {
                 lastFrameTime = frameTimeNanos
                 return
             }
-            if (isDragging) return
-
             val deltaSec = (frameTimeNanos - lastFrameTime) / 1_000_000_000f
             lastFrameTime = frameTimeNanos
 
-            val dx = targetX - currentX
-            val dy = targetY - currentY
-            val dist = kotlin.math.hypot(dx, dy)
+            for (pv in participants.values) {
+                if (pv.isDragging) continue
+                val dx = pv.targetX - pv.currentX
+                val dy = pv.targetY - pv.currentY
+                val dist = kotlin.math.hypot(dx, dy)
 
-            if (dist < 5f) {
-                if (isMoving) {
-                    isMoving = false
-                    renderer?.animationState = VrmGlRenderer.AnimationState.IDLE
-                    serviceScope.launch {
-                        delay(500L + kotlin.random.Random.nextLong(2000))
-                        pickNewTarget()
+                if (dist < 5f) {
+                    if (pv.isMoving) {
+                        pv.isMoving = false
+                        pv.renderer.animationState = VrmGlRenderer.AnimationState.IDLE
+                        serviceScope.launch {
+                            delay(500L + kotlin.random.Random.nextLong(2000))
+                            pickNewTargetForParticipant(pv)
+                        }
                     }
+                } else {
+                    pv.isMoving = true
+                    pv.renderer.animationState = VrmGlRenderer.AnimationState.WALK
+                    val moveDist = moveSpeed * deltaSec
+                    val ratio = if (dist > 0f) moveDist / dist else 0f
+                    pv.currentX += dx * kotlin.math.min(ratio, 1f)
+                    pv.currentY += dy * kotlin.math.min(ratio, 1f)
+
+                    pv.params.x = pv.currentX.toInt()
+                    pv.params.y = pv.currentY.toInt()
+                    windowManager?.updateViewLayout(pv.view, pv.params)
+
+                    val angle = (kotlin.math.atan2(dx.toDouble(), dy.toDouble()) * 180.0 / kotlin.math.PI).toFloat()
+                    pv.renderer.rotationY = angle
                 }
-            } else {
-                isMoving = true
-                renderer?.animationState = VrmGlRenderer.AnimationState.WALK
-                val moveDist = moveSpeed * deltaSec
-                val ratio = if (dist > 0f) moveDist / dist else 0f
-                currentX += dx * kotlin.math.min(ratio, 1f)
-                currentY += dy * kotlin.math.min(ratio, 1f)
-
-                val params = layoutParams ?: return
-                params.x = currentX.toInt()
-                params.y = currentY.toInt()
-                windowManager?.updateViewLayout(overlayView, params)
-
-                val angle = (kotlin.math.atan2(dx.toDouble(), dy.toDouble()) * 180.0 / kotlin.math.PI).toFloat()
-                renderer?.rotationY = angle
             }
         }
     }
 
     private fun pickNewTarget() {
-        val viewW = layoutParams?.width ?: return
-        val viewH = layoutParams?.height ?: return
-        targetX = kotlin.random.Random.nextInt(0, screenWidth - viewW).toFloat()
-        targetY = kotlin.random.Random.nextInt(0, screenHeight - viewH).toFloat()
-        isMoving = true
-        renderer?.animationState = VrmGlRenderer.AnimationState.WALK
+        // 自分自身は非表示なので何もしない
+    }
+
+    private fun pickNewTargetForParticipant(pv: ParticipantView) {
+        val viewW = pv.params.width
+        val viewH = pv.params.height
+        val maxX = (screenWidth - viewW).coerceAtLeast(1)
+        val maxY = (screenHeight - viewH).coerceAtLeast(1)
+        pv.targetX = kotlin.random.Random.nextInt(0, maxX).toFloat()
+        pv.targetY = kotlin.random.Random.nextInt(0, maxY).toFloat()
+        pv.isMoving = true
+        pv.renderer.animationState = VrmGlRenderer.AnimationState.WALK
     }
 
     override fun onCreate() {
         super.onCreate()
         prefs = PreferencesRepository(applicationContext)
         createNotificationChannel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerReceiver(chatReplyReceiver, IntentFilter(ACTION_SEND_CHAT), Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(chatReplyReceiver, IntentFilter(ACTION_SEND_CHAT))
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -219,15 +252,21 @@ class VrmOverlayService : Service() {
         glView.setRenderer(r)
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
+        // 自分のアバターは非表示（自分以外を擬人化するため）
+        glView.visibility = View.GONE
+        view.findViewById<View>(R.id.decorationContainer).visibility = View.GONE
+
         val params = WindowManager.LayoutParams(
             dpToPx(90),
             dpToPx(120),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.START or Gravity.TOP
+        view.visibility = View.GONE
 
         screenWidth = resources.displayMetrics.widthPixels
         screenHeight = resources.displayMetrics.heightPixels
@@ -246,10 +285,27 @@ class VrmOverlayService : Service() {
         loadVrm(r)
     }
 
+    private fun isTouchOnAvatar(event: MotionEvent, glView: GLSurfaceView?): Boolean {
+        if (glView == null || glView.visibility == View.GONE) return false
+        val location = IntArray(2)
+        glView.getLocationOnScreen(location)
+        val x = event.rawX - location[0]
+        val y = event.rawY - location[1]
+        val centerX = glView.width / 2f
+        val centerY = glView.height * 0.55f
+        val radiusX = glView.width * 0.35f
+        val radiusY = glView.height * 0.45f
+        val dx = x - centerX
+        val dy = y - centerY
+        return (dx * dx) / (radiusX * radiusX) + (dy * dy) / (radiusY * radiusY) <= 1f
+    }
+
     private fun setupDrag(view: View, params: WindowManager.LayoutParams) {
+        val glView = view.findViewById<GLSurfaceView>(R.id.surfaceView)
         view.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (!isTouchOnAvatar(event, glView)) return@setOnTouchListener false
                     isDragging = true
                     renderer?.animationState = VrmGlRenderer.AnimationState.IDLE
                     startRawX = event.rawX
@@ -340,7 +396,7 @@ class VrmOverlayService : Service() {
     private fun connectWebSocket() {
         // Clear existing participants before reconnecting
         participants.keys.toList().forEach { removeParticipant(it) }
-        chatWebSocket.disconnect()
+        ChatWebSocket.disconnect()
         eventCollectionJob?.cancel()
 
         serviceScope.launch {
@@ -352,7 +408,7 @@ class VrmOverlayService : Service() {
                 val userName = prefs.userName.first()
                 Log.d(TAG, "Connecting WebSocket: userId=$uid, roomId=$roomId")
                 if (roomId.isNotEmpty()) {
-                    chatWebSocket.connect(serverUrl, roomId, uid, userName, "")
+                    ChatWebSocket.connect(serverUrl, roomId, uid, userName, "")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "WebSocket connect failed", e)
@@ -360,7 +416,7 @@ class VrmOverlayService : Service() {
         }
 
         eventCollectionJob = serviceScope.launch {
-            chatWebSocket.events.collect { event ->
+            ChatWebSocket.events.collect { event ->
                 handleEvent(event)
             }
         }
@@ -378,24 +434,26 @@ class VrmOverlayService : Service() {
                     val senderId = event.msg.sender_id
                     val senderName = event.msg.sender
                     val content = event.msg.content
-                    when {
+                    val targetBubble = when {
                         senderId == myUserId -> {
-                            val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
-                            bubble?.let { showBubbleOn(it, senderName, content) }
+                            participants.values.firstOrNull()?.speechBubble
+                                ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
                         }
                         participants.containsKey(senderId) -> {
-                            participants[senderId]?.speechBubble?.let { showBubbleOn(it, senderName, content) }
+                            participants[senderId]?.speechBubble
                         }
                         else -> {
-                            val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
-                            bubble?.let { showBubbleOn(it, senderName, content) }
+                            participants.values.firstOrNull()?.speechBubble
+                                ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
                         }
                     }
+                    targetBubble?.let { showBubbleOn(it, senderName, content) }
                 }
             }
             is ChatEvent.UserJoined -> {
                 serviceScope.launch(Dispatchers.Main) {
-                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    val bubble = participants.values.firstOrNull()?.speechBubble
+                        ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
                     bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが参加しました") }
                     if (event.userId != myUserId && !participants.containsKey(event.userId)) {
                         addParticipant(event.userId, event.userName)
@@ -404,7 +462,8 @@ class VrmOverlayService : Service() {
             }
             is ChatEvent.UserLeft -> {
                 serviceScope.launch(Dispatchers.Main) {
-                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    val bubble = participants.values.firstOrNull()?.speechBubble
+                        ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
                     bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが退出しました") }
                     removeParticipant(event.userId)
                 }
@@ -470,12 +529,31 @@ class VrmOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val remoteInput = RemoteInput.Builder(EXTRA_CHAT_REPLY)
+            .setLabel("メッセージを入力...")
+            .build()
+
+        val replyIntent = Intent(ACTION_SEND_CHAT).apply {
+            setPackage(packageName)
+        }
+        val replyPendingIntent = PendingIntent.getBroadcast(
+            this, 1, replyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+
+        val replyAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_menu_send,
+            "送信",
+            replyPendingIntent
+        ).addRemoteInput(remoteInput).build()
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("FamiChibi")
             .setContentText("アバターが画面で待機中...")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .addAction(replyAction)
             .build()
     }
 
@@ -501,7 +579,10 @@ class VrmOverlayService : Service() {
         val r = VrmGlRenderer()
         glView.setRenderer(r)
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-        frame.addView(glView, FrameLayout.LayoutParams(dpToPx(90), dpToPx(120)))
+        val glViewParams = FrameLayout.LayoutParams(dpToPx(90), dpToPx(120)).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        }
+        frame.addView(glView, glViewParams)
 
         // Speech bubble for this participant
         val bubble = TextView(this).apply {
@@ -533,12 +614,11 @@ class VrmOverlayService : Service() {
         )
         params.gravity = Gravity.START or Gravity.TOP
 
-        // Place to the right of existing participants or main overlay
-        val baseX = layoutParams?.x ?: 0
-        val baseY = layoutParams?.y ?: 0
-        val offsetX = dpToPx(100) * (participants.size + 1)
-        params.x = baseX + offsetX
-        params.y = baseY
+        // 画面上のランダムな位置に配置
+        val maxX = (screenWidth - params.width).coerceAtLeast(1)
+        val maxY = (screenHeight - params.height).coerceAtLeast(1)
+        params.x = kotlin.random.Random.nextInt(0, maxX)
+        params.y = kotlin.random.Random.nextInt(0, maxY)
 
         val pv = ParticipantView(
             userId = userId,
@@ -548,14 +628,15 @@ class VrmOverlayService : Service() {
             renderer = r,
             speechBubble = bubble,
             params = params,
-            currentX = (baseX + offsetX).toFloat(),
-            currentY = baseY.toFloat()
+            currentX = params.x.toFloat(),
+            currentY = params.y.toFloat()
         )
         participants[userId] = pv
 
         wm.addView(frame, params)
         setupDragForParticipant(pv)
         loadVrmForRenderer(r)
+        pickNewTargetForParticipant(pv)
         Log.d(TAG, "Added participant: $userName at (${params.x}, ${params.y})")
     }
 
@@ -574,6 +655,9 @@ class VrmOverlayService : Service() {
         pv.view.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (!isTouchOnAvatar(event, pv.glSurfaceView)) return@setOnTouchListener false
+                    pv.isDragging = true
+                    pv.renderer.animationState = VrmGlRenderer.AnimationState.IDLE
                     startRawX = event.rawX
                     startRawY = event.rawY
                     initialX = pv.params.x
@@ -590,7 +674,14 @@ class VrmOverlayService : Service() {
                     windowManager?.updateViewLayout(pv.view, pv.params)
                     true
                 }
-                MotionEvent.ACTION_UP -> true
+                MotionEvent.ACTION_UP -> {
+                    pv.isDragging = false
+                    serviceScope.launch {
+                        delay(800)
+                        pickNewTargetForParticipant(pv)
+                    }
+                    true
+                }
                 else -> false
             }
         }
@@ -621,6 +712,9 @@ class VrmOverlayService : Service() {
         super.onDestroy()
         choreographer.removeFrameCallback(moveCallback)
         try {
+            unregisterReceiver(chatReplyReceiver)
+        } catch (_: Exception) {}
+        try {
             glSurfaceView?.onPause()
             windowManager?.removeView(overlayView)
         } catch (e: Exception) {
@@ -634,7 +728,7 @@ class VrmOverlayService : Service() {
         }
         participants.clear()
         try {
-            chatWebSocket.disconnect()
+            ChatWebSocket.disconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting WebSocket", e)
         }

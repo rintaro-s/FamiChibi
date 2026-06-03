@@ -35,6 +35,9 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.nbks.famichibi.data.AgentConfig
 import com.nbks.famichibi.data.DecorationItem
 import com.nbks.famichibi.data.PreferencesRepository
+import com.nbks.famichibi.network.ChatEvent
+import com.nbks.famichibi.network.ChatMessage
+import com.nbks.famichibi.network.ChatWebSocket
 import com.nbks.famichibi.network.DiscoveredServer
 import com.nbks.famichibi.network.LanDiscovery
 import com.nbks.famichibi.overlay.VrmOverlayActivity
@@ -131,6 +134,8 @@ fun SettingsScreen(
     var showDecoDialog by remember { mutableStateOf(false) }
     var agents by remember { mutableStateOf(listOf<AgentConfig>()) }
     var decorations by remember { mutableStateOf(listOf<DecorationItem>()) }
+    var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    var chatInput by remember { mutableStateOf("") }
 
     // LAN Discovery
     val lanDiscovery = remember { LanDiscovery() }
@@ -174,6 +179,17 @@ fun SettingsScreen(
         while (true) {
             isOverlayRunning = VrmOverlayService.isRunning(context)
             kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        ChatWebSocket.events.collect { event ->
+            when (event) {
+                is ChatEvent.Message -> {
+                    messages = messages + event.msg
+                }
+                else -> {}
+            }
         }
     }
 
@@ -228,6 +244,16 @@ fun SettingsScreen(
         }
     }
 
+    suspend fun loadChatHistory() {
+        if (roomId.isEmpty()) return
+        try {
+            val response = httpClient.get("$serverUrl/rooms/$roomId/messages?limit=50")
+            if (response.status == HttpStatusCode.OK) {
+                messages = Json.decodeFromString(response.bodyAsText())
+            }
+        } catch (_: Exception) {}
+    }
+
     suspend fun joinRoom(room: RoomInfo, password: String) {
         try {
             val response = httpClient.submitForm(
@@ -242,6 +268,7 @@ fun SettingsScreen(
                 prefs.setRoomId(room.id)
                 roomId = room.id
                 roomName = room.name
+                loadChatHistory()
                 snackbarHostState.showSnackbar("${room.name}に参加しました")
             } else {
                 snackbarHostState.showSnackbar("参加に失敗しました")
@@ -511,6 +538,82 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
+                    }
+                }
+            }
+        }
+
+        // Chat Card (shown when overlay is running and joined a room)
+        if (isOverlayRunning && roomId.isNotEmpty()) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("チャット", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (messages.isEmpty()) {
+                            Text(
+                                "まだメッセージがありません",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        } else {
+                            messages.forEach { msg ->
+                                val isMe = msg.sender_id == userId || msg.sender == userName
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                                ) {
+                                    Text(
+                                        text = msg.sender,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Surface(
+                                        color = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                        shape = MaterialTheme.shapes.medium
+                                    ) {
+                                        Text(
+                                            text = msg.content,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = chatInput,
+                            onValueChange = { chatInput = it },
+                            label = { Text("メッセージ") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                if (chatInput.isNotBlank()) {
+                                    ChatWebSocket.sendMessage(userName, chatInput)
+                                    chatInput = ""
+                                }
+                            },
+                            enabled = chatInput.isNotBlank()
+                        ) {
+                            Text("送信")
+                        }
                     }
                 }
             }

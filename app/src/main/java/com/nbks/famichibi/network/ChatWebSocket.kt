@@ -34,7 +34,7 @@ sealed class ChatEvent {
     data class Error(val message: String) : ChatEvent()
 }
 
-class ChatWebSocket {
+object ChatWebSocket {
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
