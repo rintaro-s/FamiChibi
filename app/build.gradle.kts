@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.accompanist.permissions)
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.nanohttpd)
 
     testImplementation(libs.junit)

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,11 @@ data class AgentConfig(
     val personality: String = ""
 )
 
+@Serializable
+data class QuickPhrase(
+    val text: String
+)
+
 class PreferencesRepository(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -42,8 +48,16 @@ class PreferencesRepository(private val context: Context) {
         val USER_ID = stringPreferencesKey("user_id")
         val VRM_PATH = stringPreferencesKey("vrm_path")
         val MY_VRM_PATH = stringPreferencesKey("my_vrm_path")
+        val SELECTED_ASSET_VRM = stringPreferencesKey("selected_asset_vrm")
         val DECORATIONS = stringPreferencesKey("decorations")
         val AGENTS = stringPreferencesKey("agents")
+        val QUICK_PHRASES = stringPreferencesKey("quick_phrases")
+        val QUIET_HOURS_START = intPreferencesKey("quiet_hours_start")
+        val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
+        val QUIET_ENABLED = stringPreferencesKey("quiet_enabled")
+        val TTS_ENABLED = stringPreferencesKey("tts_enabled")
+        val VOICE_INPUT_ENABLED = stringPreferencesKey("voice_input_enabled")
+        val LAST_BRIEFING_DATE = stringPreferencesKey("last_briefing_date")
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[SERVER_URL] ?: "http://10.0.2.2:8000" }
@@ -52,52 +66,45 @@ class PreferencesRepository(private val context: Context) {
     val userId: Flow<String> = context.dataStore.data.map { it[USER_ID] ?: "" }
     val vrmPath: Flow<String> = context.dataStore.data.map { it[VRM_PATH] ?: "" }
     val myVrmPath: Flow<String> = context.dataStore.data.map { it[MY_VRM_PATH] ?: "" }
+    val selectedAssetVrm: Flow<String> = context.dataStore.data.map { it[SELECTED_ASSET_VRM] ?: "" }
     val decorations: Flow<List<DecorationItem>> = context.dataStore.data.map {
         val str = it[DECORATIONS] ?: "[]"
-        try {
-            json.decodeFromString(str)
-        } catch (_: Exception) {
-            emptyList()
-        }
+        try { json.decodeFromString(str) } catch (_: Exception) { emptyList() }
     }
     val agents: Flow<List<AgentConfig>> = context.dataStore.data.map {
         val str = it[AGENTS] ?: "[]"
-        try {
-            json.decodeFromString(str)
-        } catch (_: Exception) {
-            emptyList()
+        try { json.decodeFromString(str) } catch (_: Exception) { emptyList() }
+    }
+    val quickPhrases: Flow<List<String>> = context.dataStore.data.map {
+        val str = it[QUICK_PHRASES] ?: "[]"
+        try { json.decodeFromString<List<String>>(str) } catch (_: Exception) {
+            listOf("おはよう", "ただいま", "おかえり", "ありがとう", "がんばって")
         }
     }
+    val quietHoursStart: Flow<Int> = context.dataStore.data.map { it[QUIET_HOURS_START] ?: 0 }
+    val quietHoursEnd: Flow<Int> = context.dataStore.data.map { it[QUIET_HOURS_END] ?: 7 }
+    val quietEnabled: Flow<Boolean> = context.dataStore.data.map { it[QUIET_ENABLED] != "0" }
+    val ttsEnabled: Flow<Boolean> = context.dataStore.data.map { it[TTS_ENABLED] != "0" }
+    val voiceInputEnabled: Flow<Boolean> = context.dataStore.data.map { it[VOICE_INPUT_ENABLED] != "0" }
+    val lastBriefingDate: Flow<String> = context.dataStore.data.map { it[LAST_BRIEFING_DATE] ?: "" }
 
-    suspend fun setServerUrl(url: String) {
-        context.dataStore.edit { it[SERVER_URL] = url }
+    suspend fun setServerUrl(url: String) { context.dataStore.edit { it[SERVER_URL] = url } }
+    suspend fun setRoomId(id: String) { context.dataStore.edit { it[ROOM_ID] = id } }
+    suspend fun setUserName(name: String) { context.dataStore.edit { it[USER_NAME] = name } }
+    suspend fun setUserId(id: String) { context.dataStore.edit { it[USER_ID] = id } }
+    suspend fun setVrmPath(path: String) { context.dataStore.edit { it[VRM_PATH] = path } }
+    suspend fun setMyVrmPath(path: String) { context.dataStore.edit { it[MY_VRM_PATH] = path } }
+    suspend fun setSelectedAssetVrm(name: String) { context.dataStore.edit { it[SELECTED_ASSET_VRM] = name } }
+    suspend fun setDecorations(items: List<DecorationItem>) { context.dataStore.edit { it[DECORATIONS] = json.encodeToString(items) } }
+    suspend fun setAgents(agents: List<AgentConfig>) { context.dataStore.edit { it[AGENTS] = json.encodeToString(agents) } }
+    suspend fun setQuickPhrases(phrases: List<String>) { context.dataStore.edit { it[QUICK_PHRASES] = json.encodeToString(phrases) } }
+    suspend fun setQuietHours(start: Int, end: Int) {
+        context.dataStore.edit { it[QUIET_HOURS_START] = start; it[QUIET_HOURS_END] = end }
     }
-
-    suspend fun setRoomId(id: String) {
-        context.dataStore.edit { it[ROOM_ID] = id }
+    suspend fun setQuietEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[QUIET_ENABLED] = if (enabled) "1" else "0" }
     }
-
-    suspend fun setUserName(name: String) {
-        context.dataStore.edit { it[USER_NAME] = name }
-    }
-
-    suspend fun setUserId(id: String) {
-        context.dataStore.edit { it[USER_ID] = id }
-    }
-
-    suspend fun setVrmPath(path: String) {
-        context.dataStore.edit { it[VRM_PATH] = path }
-    }
-
-    suspend fun setMyVrmPath(path: String) {
-        context.dataStore.edit { it[MY_VRM_PATH] = path }
-    }
-
-    suspend fun setDecorations(items: List<DecorationItem>) {
-        context.dataStore.edit { it[DECORATIONS] = json.encodeToString(items) }
-    }
-
-    suspend fun setAgents(agents: List<AgentConfig>) {
-        context.dataStore.edit { it[AGENTS] = json.encodeToString(agents) }
-    }
+    suspend fun setTtsEnabled(enabled: Boolean) { context.dataStore.edit { it[TTS_ENABLED] = if (enabled) "1" else "0" } }
+    suspend fun setVoiceInputEnabled(enabled: Boolean) { context.dataStore.edit { it[VOICE_INPUT_ENABLED] = if (enabled) "1" else "0" } }
+    suspend fun setLastBriefingDate(date: String) { context.dataStore.edit { it[LAST_BRIEFING_DATE] = date } }
 }

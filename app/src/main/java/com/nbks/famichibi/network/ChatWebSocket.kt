@@ -31,6 +31,10 @@ sealed class ChatEvent {
     data class UserJoined(val userId: String, val userName: String, val users: List<RoomUser>) : ChatEvent()
     data class UserLeft(val userId: String, val userName: String, val users: List<RoomUser>) : ChatEvent()
     data class Joined(val roomId: String, val roomName: String, val userId: String, val users: List<RoomUser>) : ChatEvent()
+    data class Whisper(val fromUserId: String, val fromUserName: String, val toUserId: String, val content: String, val timestamp: String) : ChatEvent()
+    data class Nudge(val fromUserId: String, val fromUserName: String, val toUserId: String, val timestamp: String) : ChatEvent()
+    data class Reaction(val messageId: String, val emoji: String, val fromUserId: String, val fromUserName: String, val timestamp: String) : ChatEvent()
+    data class NotebookUpdate(val kind: String) : ChatEvent()
     data class Error(val message: String) : ChatEvent()
 }
 
@@ -65,7 +69,6 @@ object ChatWebSocket {
                         session = this
                         _connectionState.value = true
 
-                        // Send join message first
                         send(
                             Json.encodeToString(
                                 JoinPayload.serializer(),
@@ -80,8 +83,7 @@ object ChatWebSocket {
                                     try {
                                         val msg = Json.decodeFromString(ServerMessage.serializer(), text)
                                         handleServerMessage(msg)
-                                    } catch (_: Exception) {
-                                    }
+                                    } catch (_: Exception) {}
                                 }
                                 else -> {}
                             }
@@ -127,7 +129,7 @@ object ChatWebSocket {
                     users = users
                 ))
             }
-            "user", "agent" -> {
+            "user", "agent", "proactive" -> {
                 _events.emit(ChatEvent.Message(
                     ChatMessage(
                         id = msg.id ?: "",
@@ -138,6 +140,35 @@ object ChatWebSocket {
                         timestamp = msg.timestamp ?: ""
                     )
                 ))
+            }
+            "whisper" -> {
+                _events.emit(ChatEvent.Whisper(
+                    fromUserId = msg.from_user_id ?: "",
+                    fromUserName = msg.from_user_name ?: "",
+                    toUserId = msg.to_user_id ?: "",
+                    content = msg.content ?: "",
+                    timestamp = msg.timestamp ?: ""
+                ))
+            }
+            "nudge" -> {
+                _events.emit(ChatEvent.Nudge(
+                    fromUserId = msg.from_user_id ?: "",
+                    fromUserName = msg.from_user_name ?: "",
+                    toUserId = msg.to_user_id ?: "",
+                    timestamp = msg.timestamp ?: ""
+                ))
+            }
+            "reaction" -> {
+                _events.emit(ChatEvent.Reaction(
+                    messageId = msg.message_id ?: "",
+                    emoji = msg.emoji ?: "",
+                    fromUserId = msg.from_user_id ?: "",
+                    fromUserName = msg.from_user_name ?: "",
+                    timestamp = msg.timestamp ?: ""
+                ))
+            }
+            "note_added", "task_added", "event_added", "photo_added" -> {
+                _events.emit(ChatEvent.NotebookUpdate(kind = msg.type))
             }
             "error" -> {
                 _events.emit(ChatEvent.Error(msg.message ?: "Unknown error"))
@@ -151,10 +182,7 @@ object ChatWebSocket {
         currentRoomId = ""
         _roomUsers.value = emptyList()
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                session?.close()
-            } catch (_: Exception) {
-            }
+            try { session?.close() } catch (_: Exception) {}
             _connectionState.value = false
         }
     }
@@ -168,8 +196,20 @@ object ChatWebSocket {
                         MessagePayload("message", sender, content)
                     )
                 )
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun sendReaction(messageId: String, emoji: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                session?.send(
+                    Json.encodeToString(
+                        ReactionPayload.serializer(),
+                        ReactionPayload("reaction", messageId, emoji)
+                    )
+                )
+            } catch (_: Exception) {}
         }
     }
 
@@ -189,6 +229,13 @@ object ChatWebSocket {
     )
 
     @Serializable
+    private data class ReactionPayload(
+        val type: String,
+        val message_id: String,
+        val emoji: String
+    )
+
+    @Serializable
     private data class ServerMessage(
         val type: String = "",
         val id: String? = null,
@@ -201,7 +248,12 @@ object ChatWebSocket {
         val room_name: String? = null,
         val user_id: String? = null,
         val user_name: String? = null,
-        val users: List<ServerUser>? = null
+        val users: List<ServerUser>? = null,
+        val from_user_id: String? = null,
+        val from_user_name: String? = null,
+        val to_user_id: String? = null,
+        val message_id: String? = null,
+        val emoji: String? = null
     )
 
     @Serializable

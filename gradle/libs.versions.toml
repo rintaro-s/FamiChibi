@@ -12,6 +12,7 @@ ktor = "2.3.7"
 datastore = "1.0.0"
 lifecycleService = "2.6.2"
 accompanist = "0.32.0"
+navigationCompose = "2.8.9"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +38,7 @@ ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", v
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanist" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version = "2.3.1" }
 
 [plugins]

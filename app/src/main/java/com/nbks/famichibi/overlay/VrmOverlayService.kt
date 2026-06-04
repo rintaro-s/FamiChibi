@@ -29,6 +29,7 @@ import com.nbks.famichibi.R
 import com.nbks.famichibi.data.PreferencesRepository
 import com.nbks.famichibi.network.ChatEvent
 import com.nbks.famichibi.network.ChatWebSocket
+import com.nbks.famichibi.vrm.AssetVrmScanner
 import com.nbks.famichibi.vrm.GltfParser
 import com.nbks.famichibi.vrm.VrmGlRenderer
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Calendar
+import java.util.Locale
+import android.speech.tts.TextToSpeech
 
 /**
  * フォアグラウンドサービス。
@@ -78,6 +82,8 @@ class VrmOverlayService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var prefs: PreferencesRepository
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
@@ -89,6 +95,10 @@ class VrmOverlayService : Service() {
     private var startRawY = 0f
     private var initialX = 0
     private var initialY = 0
+    private var lastDragTime = 0L
+    private var lastDragX = 0f
+    private var lastDragY = 0f
+    private val DIZZY_VELOCITY_THRESHOLD = 2400f // px/s
 
     // Multi-participant support
     private data class ParticipantView(
@@ -197,6 +207,12 @@ class VrmOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         prefs = PreferencesRepository(applicationContext)
+        tts = TextToSpeech(applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+                tts?.language = Locale.JAPAN
+            }
+        }
         createNotificationChannel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             registerReceiver(chatReplyReceiver, IntentFilter(ACTION_SEND_CHAT), Context.RECEIVER_NOT_EXPORTED)
@@ -312,6 +328,9 @@ class VrmOverlayService : Service() {
                     startRawY = event.rawY
                     initialX = params.x
                     initialY = params.y
+                    lastDragX = event.rawX
+                    lastDragY = event.rawY
+                    lastDragTime = System.currentTimeMillis()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -322,6 +341,20 @@ class VrmOverlayService : Service() {
                     currentX = params.x.toFloat()
                     currentY = params.y.toFloat()
                     windowManager?.updateViewLayout(overlayView, params)
+
+                    val now = System.currentTimeMillis()
+                    val dt = (now - lastDragTime).coerceAtLeast(1L)
+                    val moveDist = kotlin.math.hypot(event.rawX - lastDragX, event.rawY - lastDragY)
+                    val velocity = (moveDist / dt) * 1000f
+                    if (velocity > DIZZY_VELOCITY_THRESHOLD) {
+                        renderer?.let { r ->
+                            r.animationState = VrmGlRenderer.AnimationState.DIZZY
+                            r.dizzyRemaining = 2.5f
+                        }
+                    }
+                    lastDragX = event.rawX
+                    lastDragY = event.rawY
+                    lastDragTime = now
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -347,12 +380,14 @@ class VrmOverlayService : Service() {
     private fun loadVrm(renderer: VrmGlRenderer) {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                // Prefer myVrmPath (self avatar), fall back to vrmPath (legacy), then default asset
+                // Prefer myVrmPath (user-imported or selected asset), fall back to legacy vrmPath, then any asset, then default
                 val myVrm = prefs.myVrmPath.first()
                 val legacyVrm = prefs.vrmPath.first()
+                val selectedAsset = prefs.selectedAssetVrm.first()
                 val vrmFile = when {
                     myVrm.isNotEmpty() -> File(myVrm)
                     legacyVrm.isNotEmpty() -> File(legacyVrm)
+                    selectedAsset.isNotEmpty() -> AssetVrmScanner.copyAssetVrmToInternal(applicationContext, selectedAsset) ?: copyAssetVrm()
                     else -> copyAssetVrm()
                 }
                 if (!vrmFile.exists()) {
@@ -448,6 +483,25 @@ class VrmOverlayService : Service() {
                         }
                     }
                     targetBubble?.let { showBubbleOn(it, senderName, content) }
+                    if (event.msg.type == "agent" || event.msg.type == "proactive") {
+                        speakIfAllowed(content)
+                    }
+                }
+            }
+            is ChatEvent.Whisper -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    bubble?.let { showBubbleOn(it, "${event.fromUserName}（ささやき）", event.content) }
+                }
+            }
+            is ChatEvent.Nudge -> {
+                serviceScope.launch(Dispatchers.Main) {
+                    val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
+                    bubble?.let { showBubbleOn(it, "システム", "${event.fromUserName}さんがあなたを呼んでいます") }
+                    renderer?.let { r ->
+                        r.animationState = VrmGlRenderer.AnimationState.DIZZY
+                        r.dizzyRemaining = 1.5f
+                    }
                 }
             }
             is ChatEvent.UserJoined -> {
@@ -479,6 +533,12 @@ class VrmOverlayService : Service() {
             is ChatEvent.Error -> {
                 Log.e(TAG, "Chat error: ${event.message}")
             }
+            is ChatEvent.NotebookUpdate -> {
+                // no overlay action needed
+            }
+            is ChatEvent.Reaction -> {
+                // no overlay action needed
+            }
         }
     }
 
@@ -504,6 +564,26 @@ class VrmOverlayService : Service() {
                     .start()
             }
         }, 4000)
+    }
+
+    private suspend fun isQuietHours(): Boolean {
+        if (!prefs.quietEnabled.first()) return false
+        val start = prefs.quietHoursStart.first()
+        val end = prefs.quietHoursEnd.first()
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return if (start < end) hour in start until end else hour >= start || hour < end
+    }
+
+    private fun speakIfAllowed(text: String) {
+        serviceScope.launch {
+            try {
+                if (isQuietHours()) return@launch
+                if (!prefs.ttsEnabled.first()) return@launch
+                if (ttsReady) {
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "overlay_msg")
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     private fun createNotificationChannel() {
@@ -732,6 +812,10 @@ class VrmOverlayService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting WebSocket", e)
         }
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {}
         serviceScope.cancel()
     }
 }

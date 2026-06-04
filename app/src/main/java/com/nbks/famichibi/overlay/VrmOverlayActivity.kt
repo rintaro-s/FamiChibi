@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.nbks.famichibi.R
 import com.nbks.famichibi.data.PreferencesRepository
+import com.nbks.famichibi.vrm.AssetVrmScanner
 import com.nbks.famichibi.vrm.GltfParser
 import com.nbks.famichibi.vrm.VrmGlRenderer
 import kotlinx.coroutines.Dispatchers
@@ -145,8 +146,15 @@ class VrmOverlayActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val prefs = PreferencesRepository(applicationContext)
-                val userVrm = prefs.vrmPath.first()
-                val vrmFile = if (userVrm.isNotEmpty()) File(userVrm) else copyAssetVrm()
+                val myVrm = prefs.myVrmPath.first()
+                val legacyVrm = prefs.vrmPath.first()
+                val selectedAsset = prefs.selectedAssetVrm.first()
+                val vrmFile = when {
+                    myVrm.isNotEmpty() -> File(myVrm)
+                    legacyVrm.isNotEmpty() -> File(legacyVrm)
+                    selectedAsset.isNotEmpty() -> AssetVrmScanner.copyAssetVrmToInternal(applicationContext, selectedAsset) ?: copyAssetVrm()
+                    else -> copyAssetVrm()
+                }
                 if (!vrmFile.exists()) {
                     Log.e(TAG, "VRM file not found: ${vrmFile.absolutePath}")
                     return@launch

@@ -2,211 +2,829 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FamiChibi Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FamiChibi</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; min-height: 100vh; }
-        .container { max-width: 480px; margin: 0 auto; background: #fff; min-height: 100vh; }
-        .header { background: #e94560; color: #fff; padding: 16px; text-align: center; }
-        .header h1 { font-size: 1.2rem; }
-        .screen { display: none; padding: 16px; }
-        .screen.active { display: block; }
-        input, button { width: 100%; padding: 12px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
-        button { background: #e94560; color: #fff; border: none; cursor: pointer; }
-        button.secondary { background: #eee; color: #333; }
-        .room-item { padding: 12px; border: 1px solid #eee; border-radius: 8px; margin-bottom: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-        .room-item:hover { background: #fafafa; }
-        .room-item .lock { color: #888; }
-        .messages { height: 60vh; overflow-y: auto; padding: 8px 0; }
-        .msg { margin-bottom: 10px; }
-        .msg-name { font-size: 0.75rem; color: #888; margin-bottom: 2px; }
-        .msg-body { display: inline-block; padding: 8px 12px; border-radius: 12px; max-width: 80%; word-break: break-word; font-size: 0.95rem; }
-        .msg.own { text-align: right; }
-        .msg.own .msg-body { background: #e94560; color: #fff; }
-        .msg.other .msg-body { background: #eee; }
-        .msg.agent .msg-body { background: #667eea; color: #fff; }
-        .chat-input { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid #eee; }
-        .chat-input input { flex: 1; margin-bottom: 0; }
-        .chat-input button { width: auto; padding: 12px 16px; margin-bottom: 0; }
-        .users { font-size: 0.8rem; color: #666; margin-bottom: 8px; }
-        .empty { text-align: center; color: #888; padding: 40px 20px; }
+        :root {
+            --bg: #F7F5F2;
+            --surface: #FFFFFF;
+            --surface-2: #EAE6E1;
+            --divider: #D4CFC8;
+            --text: #1A1A1A;
+            --text-secondary: #6B6660;
+            --accent: #C45C3E;
+            --accent-text: #FFFFFF;
+            --danger: #B5423F;
+            --ok: #3E7C5C;
+            --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+        button, input, select, textarea { font-family: inherit; color: inherit; }
+        button { cursor: pointer; border: none; background: none; }
+
+        #app { height: 100%; display: flex; flex-direction: column; }
+        .screen { display: none; flex-direction: column; height: 100%; }
+        .screen.active { display: flex; }
+
+        .appbar {
+            height: 56px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--divider);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px; flex-shrink: 0;
+        }
+        .appbar h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; }
+        .appbar .actions { display: flex; gap: 8px; align-items: center; }
+        .iconbtn {
+            width: 40px; height: 40px; border-radius: 4px;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; color: var(--text); background: transparent;
+        }
+        .iconbtn:active { background: var(--surface-2); }
+
+        .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+        /* Landing */
+        .landing { justify-content: center; padding: 24px; }
+        .landing h2 { font-size: 1.75rem; margin-bottom: 8px; }
+        .landing p { color: var(--text-secondary); margin-bottom: 24px; }
+        .field {
+            width: 100%; padding: 14px 12px; margin-bottom: 12px;
+            border: 1px solid var(--divider); background: var(--surface);
+            font-size: 1rem; outline: none;
+        }
+        .field:focus { border-color: var(--accent); }
+        .btn {
+            width: 100%; padding: 14px 12px; font-size: 1rem; font-weight: 600;
+            background: var(--accent); color: var(--accent-text);
+        }
+        .btn:active { opacity: 0.9; }
+        .btn.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--divider); }
+
+        /* Room list */
+        .list { list-style: none; }
+        .list li {
+            width: 100%; padding: 16px; background: var(--surface);
+            border-bottom: 1px solid var(--divider);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .list li:active { background: var(--bg); }
+        .meta { color: var(--text-secondary); font-size: 0.85rem; }
+        .empty { padding: 40px 16px; text-align: center; color: var(--text-secondary); }
+
+        /* Chat stage */
+        #stageWrap {
+            width: 100%; height: 38vh; max-height: 360px; min-height: 220px;
+            background: radial-gradient(closest-side, transparent 0%, transparent 100%);
+            position: relative; border-bottom: 1px solid var(--divider);
+        }
+        #stageWrap canvas { display: block; width: 100%; height: 100%; }
+        #stageLabel {
+            position: absolute; bottom: 8px; left: 12px; right: 12px;
+            font-size: 0.8rem; color: var(--text-secondary);
+            pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        /* Messages */
+        .messages { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+        .msg { width: 100%; padding: 10px 16px; display: flex; flex-direction: column; }
+        .msg.own { align-items: flex-end; }
+        .msg.other { align-items: flex-start; }
+        .msg.agent { align-items: flex-start; background: #FAF8F5; border-bottom: 1px solid var(--divider); }
+        .msg-name { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; }
+        .msg-body { max-width: 80%; padding: 10px 12px; font-size: 0.95rem; line-height: 1.45; }
+        .msg.own .msg-body { background: var(--surface-2); color: var(--text); }
+        .msg.other .msg-body { background: var(--surface); border: 1px solid var(--divider); }
+        .msg.agent .msg-body { background: transparent; border: none; padding-left: 0; }
+        .msg-time { font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px; }
+        .reactions { display: flex; gap: 4px; margin-top: 4px; }
+        .reactions span { font-size: 0.85rem; }
+        .sys { text-align: center; font-size: 0.75rem; color: var(--text-secondary); padding: 6px 16px; }
+
+        /* Input */
+        .inputbar {
+            border-top: 1px solid var(--divider); background: var(--surface);
+            padding: 8px 12px; flex-shrink: 0;
+        }
+        .quick-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+        .quick-chips button {
+            flex-shrink: 0; padding: 6px 10px; font-size: 0.85rem;
+            background: var(--bg); border: 1px solid var(--divider); color: var(--text);
+        }
+        .inputrow { display: flex; gap: 8px; align-items: center; }
+        .inputrow input {
+            flex: 1; padding: 12px; border: 1px solid var(--divider); background: var(--bg);
+            font-size: 1rem; outline: none;
+        }
+        .inputrow input:focus { border-color: var(--accent); }
+        .mic.recording { color: var(--danger); background: #FBE9E8; }
+
+        /* Sheet + modal */
+        .sheet, .modal { position: fixed; inset: 0; display: none; z-index: 10; }
+        .sheet.active, .modal.active { display: flex; }
+        .sheet .backdrop, .modal .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
+        .sheet .panel {
+            position: absolute; left: 0; right: 0; bottom: 0; top: 10vh;
+            background: var(--surface); display: flex; flex-direction: column;
+            transform: translateY(100%); transition: transform 0.25s ease;
+        }
+        .sheet.active .panel { transform: translateY(0); }
+        .modal .panel {
+            position: absolute; left: 16px; right: 16px; top: 50%;
+            transform: translateY(-50%) scale(0.96); opacity: 0;
+            background: var(--surface); padding: 20px;
+            border: 1px solid var(--divider); max-height: 84vh; overflow-y: auto;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .modal.active .panel { transform: translateY(-50%) scale(1); opacity: 1; }
+        .sheet-header {
+            height: 56px; border-bottom: 1px solid var(--divider);
+            display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+        }
+        .tabs { display: flex; border-bottom: 1px solid var(--divider); }
+        .tabs button {
+            flex: 1; padding: 12px; font-size: 0.9rem; font-weight: 500;
+            color: var(--text-secondary); border-bottom: 2px solid transparent;
+        }
+        .tabs button.active { color: var(--accent); border-color: var(--accent); }
+        .sheet-body { flex: 1; overflow-y: auto; }
+        .note-row, .task-row, .event-row {
+            padding: 14px 16px; border-bottom: 1px solid var(--divider); display: flex; justify-content: space-between; align-items: center;
+        }
+        .note-row.pinned { background: #FFF9F3; }
+        .note-actions, .task-actions { display: flex; gap: 8px; }
+        .smallbtn { padding: 6px 10px; font-size: 0.8rem; background: var(--bg); border: 1px solid var(--divider); }
+        .addrow { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--divider); }
+        .addrow input, .addrow select { flex: 1; padding: 10px; border: 1px solid var(--divider); background: var(--bg); }
+
+        .presence { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-secondary); }
+        .dot.online { background: var(--ok); }
+
+        .file-label {
+            display: inline-block; padding: 10px 12px; border: 1px dashed var(--divider); width: 100%; text-align: center; color: var(--text-secondary); margin-bottom: 12px;
+        }
+        .setting-row { padding: 12px 0; border-bottom: 1px solid var(--divider); }
+        .setting-row label { display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px; }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #121212;
+                --surface: #1E1E1E;
+                --surface-2: #2A2A2A;
+                --divider: #3A3A3A;
+                --text: #F2F2F2;
+                --text-secondary: #A8A29E;
+            }
+            .msg.agent { background: #1A1816; }
+            .note-row.pinned { background: #2A231C; }
+        }
     </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+        }
+    }
+    </script>
 </head>
 <body>
-    <div class="container">
-        <div class="header"><h1>💬 FamiChibi Chat</h1></div>
+<div id="app">
 
-        <div id="roomListScreen" class="screen active">
-            <input id="userNameInput" placeholder="あなたの名前" value="Webユーザー">
-            <div id="roomList"><div class="empty">読み込み中...</div></div>
-            <button onclick="showCreateRoom()">＋ 部屋を作る</button>
-            <button class="secondary" onclick="refreshRooms()">🔄 更新</button>
-        </div>
+    <!-- LANDING -->
+    <div id="landingScreen" class="screen active landing">
+        <h2>FamiChibi</h2>
+        <p>家族とAIアバターが一緒に過ごす、やさしい空間。</p>
+        <input id="landingName" class="field" placeholder="あなたの名前" value="Webユーザー">
+        <button class="btn" onclick="showRoomList()">はじめる</button>
+    </div>
 
-        <div id="createRoomScreen" class="screen">
-            <h3>部屋を作成</h3>
-            <input id="newRoomName" placeholder="部屋の名前">
-            <input id="newRoomPassword" placeholder="パスワード（空欄で公開）" type="password">
-            <button onclick="createRoom()">作成</button>
-            <button class="secondary" onclick="showRoomList()">キャンセル</button>
-        </div>
-
-        <div id="joinRoomScreen" class="screen">
-            <h3 id="joinRoomTitle">部屋に参加</h3>
-            <input id="joinPassword" placeholder="パスワード" type="password">
-            <button onclick="joinRoom()">参加</button>
-            <button class="secondary" onclick="showRoomList()">キャンセル</button>
-        </div>
-
-        <div id="chatScreen" class="screen">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <b id="chatRoomTitle">部屋名</b>
-                <span class="users" id="chatUserCount">0人在室</span>
+    <!-- ROOM LIST -->
+    <div id="roomListScreen" class="screen">
+        <div class="appbar">
+            <h1>部屋一覧</h1>
+            <div class="actions">
+                <button class="iconbtn" onclick="showSettings()" title="設定">⚙️</button>
+                <button class="iconbtn" onclick="showCreateRoom()" title="部屋を作る">＋</button>
             </div>
-            <div class="users" id="chatUsers"></div>
-            <div class="messages" id="messages"></div>
-            <div class="chat-input">
-                <input id="messageInput" placeholder="メッセージ..." onkeydown="if(event.key==='Enter') sendMessage()">
-                <button onclick="sendMessage()">送信</button>
-            </div>
-            <button class="secondary" onclick="leaveRoom()" style="margin-top:8px;">← 退出する</button>
+        </div>
+        <div class="content">
+            <ul id="roomList" class="list"></ul>
         </div>
     </div>
 
-<script>
+    <!-- CREATE ROOM -->
+    <div id="createRoomScreen" class="screen">
+        <div class="appbar">
+            <h1>部屋を作成</h1>
+            <div class="actions"><button class="iconbtn" onclick="showRoomList()">✕</button></div>
+        </div>
+        <div class="content" style="padding:16px;">
+            <input id="newRoomName" class="field" placeholder="部屋の名前">
+            <input id="newRoomPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
+            <button class="btn" onclick="createRoom()">作成</button>
+            <button class="btn secondary" style="margin-top:8px;" onclick="showRoomList()">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- JOIN ROOM -->
+    <div id="joinRoomScreen" class="screen">
+        <div class="appbar">
+            <h1 id="joinRoomTitle">部屋に参加</h1>
+            <div class="actions"><button class="iconbtn" onclick="showRoomList()">✕</button></div>
+        </div>
+        <div class="content" style="padding:16px;">
+            <input id="joinPassword" class="field" placeholder="パスワード" type="password">
+            <button class="btn" onclick="joinRoom()">参加</button>
+            <button class="btn secondary" style="margin-top:8px;" onclick="showRoomList()">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- CHAT -->
+    <div id="chatScreen" class="screen">
+        <div class="appbar">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <button class="iconbtn" onclick="leaveRoom()" style="width:auto;padding:0 8px;font-size:0.85rem;">←</button>
+                <div>
+                    <h1 id="chatRoomTitle" style="font-size:1rem;">部屋名</h1>
+                    <div class="presence"><span class="dot online"></span><span id="chatUserCount">0人在室</span></div>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="iconbtn" onclick="showNotebook()" title="ノート">📝</button>
+                <button class="iconbtn" onclick="showSettings()" title="設定">⚙️</button>
+            </div>
+        </div>
+        <div id="stageWrap">
+            <canvas id="vrmCanvas"></canvas>
+            <div id="stageLabel">VRM: デフォルト</div>
+        </div>
+        <div id="messages" class="messages"></div>
+        <div class="inputbar">
+            <div class="quick-chips" id="quickChips"></div>
+            <div class="inputrow">
+                <button id="micBtn" class="iconbtn" onclick="toggleMic()" title="音声入力">🎤</button>
+                <input id="messageInput" placeholder="メッセージ…" onkeydown="if(event.key==='Enter') sendMessage()">
+                <button class="iconbtn" onclick="sendMessage()" title="送信" style="background:var(--accent);color:#fff;">↑</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- NOTEBOOK SHEET -->
+<div id="notebookSheet" class="sheet">
+    <div class="backdrop" onclick="hideNotebook()"></div>
+    <div class="panel">
+        <div class="sheet-header">
+            <h2>家族ノート</h2>
+            <button class="iconbtn" onclick="hideNotebook()">✕</button>
+        </div>
+        <div class="tabs">
+            <button class="active" data-tab="notes" onclick="setTab('notes')">メモ</button>
+            <button data-tab="tasks" onclick="setTab('tasks')">お手伝い</button>
+            <button data-tab="events" onclick="setTab('events')">予定</button>
+        </div>
+        <div class="sheet-body" id="notebookBody"></div>
+    </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settingsModal" class="modal">
+    <div class="backdrop" onclick="hideSettings()"></div>
+    <div class="panel">
+        <div class="sheet-header" style="padding:0 0 12px;">
+            <h2>設定</h2>
+            <button class="iconbtn" onclick="hideSettings()">✕</button>
+        </div>
+        <div class="setting-row">
+            <label>あなたの名前</label>
+            <input id="settingsName" class="field" placeholder="名前">
+        </div>
+        <div class="setting-row">
+            <label>VRMアバター</label>
+            <span id="vrmName" style="font-size:0.85rem;color:var(--text-secondary);">デフォルト</span>
+            <label class="file-label" style="margin-top:8px;">
+                <input type="file" id="vrmInput" accept=".vrm" style="display:none;" onchange="onVrmSelected(event)">
+                VRMファイルを選択
+            </label>
+        </div>
+        <div class="setting-row">
+            <label>クイック返信（カンマ区切り）</label>
+            <input id="settingsQuick" class="field" placeholder="おはよう,ただいま,おかえり,ありがとう">
+        </div>
+        <div class="setting-row" style="display:flex;gap:12px;align-items:center;justify-content:space-between;">
+            <span>アバター音声（TTS）</span>
+            <input type="checkbox" id="settingsTts" style="width:20px;height:20px;">
+        </div>
+        <div class="setting-row" style="display:flex;gap:12px;align-items:center;justify-content:space-between;">
+            <span>おやすみモード（0:00-7:00は音をOFF）</span>
+            <input type="checkbox" id="settingsQuiet" style="width:20px;height:20px;">
+        </div>
+        <button class="btn" style="margin-top:8px;" onclick="saveSettings()">保存</button>
+        <button class="btn secondary" style="margin-top:8px;" onclick="hideSettings()">閉じる</button>
+    </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
 const API = location.origin;
 let roomId = null, roomName = '', ws = null;
 let myId = 'web_' + Math.random().toString(36).substr(2, 9);
-let myName = '';
+let myName = localStorage.getItem('famichibi_name') || 'Webユーザー';
 let joiningRoom = null;
+let users = [];
 
-function $(id) { return document.getElementById(id); }
-function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active'); }
-function showRoomList() { show('roomListScreen'); refreshRooms(); }
-function showCreateRoom() { show('createRoomScreen'); }
-function showJoinRoom(rid, rname, hasPw) {
-    joiningRoom = {id: rid, name: rname};
-    if (!hasPw) { joinRoom(); return; }
+let vrm = null, mixer = null, clock = new THREE.Clock();
+let currentExpression = 'neutral';
+let blinkTimer = 0, isBlinking = false;
+let ttsEnabled = localStorage.getItem('famichibi_tts') === '1';
+let quietEnabled = localStorage.getItem('famichibi_quiet') === '1';
+let quickPhrases = [];
+let selectedVrmUrl = localStorage.getItem('famichibi_vrm_url') || '/static/avatars/AvatarSample_M.vrm';
+let selectedVrmFile = null;
+let recognition = null;
+
+function $(id){ return document.getElementById(id); }
+function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+
+function loadQuickPhrases(){
+    const raw = localStorage.getItem('famichibi_quick') || 'おはよう,ただいま,おかえり,ありがとう,がんばって';
+    quickPhrases = raw.split(',').map(s=>s.trim()).filter(Boolean);
+    const chips = $('quickChips');
+    chips.innerHTML = '';
+    quickPhrases.forEach(p=>{
+        const b = document.createElement('button');
+        b.textContent = p;
+        b.onclick = ()=>{ $('messageInput').value = p; sendMessage(); };
+        chips.appendChild(b);
+    });
+}
+
+// Three.js setup
+const stage = $('stageWrap');
+const canvas = $('vrmCanvas');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, stage.clientWidth/stage.clientHeight, 0.1, 100);
+camera.position.set(0, 1.3, 1.5);
+camera.lookAt(0, 1.1, 0);
+const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true, premultipliedAlpha:false });
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+stage.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 1.2);
+key.position.set(1,1,1); scene.add(key);
+const back = new THREE.DirectionalLight(0xffffff, 0.5);
+back.position.set(-1,0.5,-1); scene.add(back);
+
+function loadVrm(vrmUrl){
+    if(!vrmUrl) vrmUrl = './AvatarSample_M.vrm';
+    $('stageLabel').textContent = 'VRM: ' + (selectedVrmFile ? selectedVrmFile.name : (vrmUrl.split('/').pop() || 'デフォルト'));
+    const loader = new GLTFLoader();
+    loader.register((parser)=>new VRMLoaderPlugin(parser));
+    loader.load(vrmUrl, (gltf)=>{
+        try {
+            if(vrm){ scene.remove(vrm.scene); VRMUtils.deepDispose(vrm.scene); }
+            vrm = gltf.userData.vrm;
+            if(!vrm) return;
+            VRMUtils.removeUnnecessaryVertices(gltf.scene);
+            VRMUtils.combineSkeletons(gltf.scene);
+            scene.add(vrm.scene);
+            vrm.scene.position.set(0,0,0); vrm.scene.rotation.set(0,0,0); vrm.scene.scale.set(1,1,1);
+            if(vrm.expressionManager){ vrm.expressionManager.setValue('neutral', 1.0); currentExpression='neutral'; }
+        }catch(e){ console.error(e); }
+    }, undefined, (err)=>{ console.error('VRM load error', err); });
+}
+
+window.loadVrm = loadVrm;
+
+function setExpression(name, value=1.0){
+    if(!vrm || !vrm.expressionManager) return;
+    try {
+        if(currentExpression && currentExpression !== name) vrm.expressionManager.setValue(currentExpression, 0.0);
+        vrm.expressionManager.setValue(name, value);
+        currentExpression = name;
+    }catch(e){}
+}
+function resetExpression(){ setExpression('neutral', 1.0); }
+
+function updateBlink(delta){
+    if(!vrm || !vrm.expressionManager) return;
+    blinkTimer -= delta;
+    if(blinkTimer <= 0){
+        if(isBlinking){ vrm.expressionManager.setValue('blink', 0.0); isBlinking=false; blinkTimer = 2+Math.random()*4; }
+        else { vrm.expressionManager.setValue('blink', 1.0); isBlinking=true; blinkTimer = 0.15; }
+    }
+}
+function animate(){
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    if(vrm){ vrm.update(delta); updateBlink(delta); }
+    renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', ()=>{
+    const w=stage.clientWidth, h=stage.clientHeight;
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+    renderer.setSize(w,h);
+});
+
+// Screen navigation
+function hideAllScreens(){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+}
+function show(id){
+    hideAllScreens();
+    $(id).classList.add('active');
+}
+window.showRoomList = function(){
+    myName = ($('landingName')?.value || myName || 'Webユーザー').trim();
+    localStorage.setItem('famichibi_name', myName);
+    loadQuickPhrases();
+    show('roomListScreen');
+    refreshRooms();
+};
+window.showCreateRoom = function(){ show('createRoomScreen'); };
+window.showJoinRoom = function(rid, rname, hasPw){
+    joiningRoom = {id:rid, name:rname};
     $('joinRoomTitle').textContent = rname + 'に参加';
     $('joinPassword').value = '';
+    if(!hasPw){ joinRoom(); return; }
     show('joinRoomScreen');
-}
+};
 
-async function refreshRooms() {
+async function refreshRooms(){
     try {
-        const rooms = await (await fetch(API + '/rooms')).json();
-        $('roomList').innerHTML = rooms.length ? rooms.map(r =>
-            `<div class="room-item" onclick="showJoinRoom('${r.id}', '${r.name}', ${r.has_password})">
-                <span>${r.name}</span>
-                <span class="lock">${r.has_password ? '🔒' : ''} ${r.user_count}人</span>
-            </div>`
-        ).join('') : '<div class="empty">部屋がありません</div>';
-    } catch { $('roomList').innerHTML = '<div class="empty">接続できません</div>'; }
+        const list = await (await fetch(API + '/rooms')).json();
+        const ul = $('roomList');
+        if(!list.length){ ul.innerHTML = '<li class="empty">部屋がありません。新しく作りましょう。</li>'; return; }
+        ul.innerHTML = list.map(r => `<li onclick="showJoinRoom('${esc(r.id)}','${esc(r.name)}',${r.has_password})">
+            <div><div style="font-weight:600;">${esc(r.name)}</div><div class="meta">${r.user_count}人が参加中</div></div>
+            <div class="meta">${r.has_password?'🔒':''} 参加</div>
+        </li>`).join('');
+    } catch { $('roomList').innerHTML = '<li class="empty">接続できません</li>'; }
 }
+window.refreshRooms = refreshRooms;
 
-async function createRoom() {
+window.createRoom = async function(){
     const name = $('newRoomName').value.trim();
-    if (!name) return alert('名前を入力してください');
+    if(!name) return alert('名前を入力してください');
     const fd = new FormData();
     fd.append('name', name);
     fd.append('password', $('newRoomPassword').value);
     try {
-        const res = await (await fetch(API + '/rooms', {method:'POST', body:fd})).json();
-        if (res.error) return alert(res.error);
-        joiningRoom = {id: res.room_id, name: name};
+        const res = await (await fetch(API+'/rooms', {method:'POST', body:fd})).json();
+        if(res.error) return alert(res.error);
+        joiningRoom = {id:res.room_id, name:name};
         joinRoom();
     } catch { alert('作成に失敗しました'); }
-}
+};
 
-async function joinRoom() {
-    myName = $('userNameInput').value.trim() || 'Webユーザー';
+window.joinRoom = async function(){
     const fd = new FormData();
     fd.append('user_id', myId);
     fd.append('user_name', myName);
-    fd.append('password', $('joinPassword').value || '');
+    fd.append('password', $('joinPassword')?.value || '');
     try {
-        const res = await (await fetch(API + '/rooms/' + joiningRoom.id + '/join', {method:'POST', body:fd})).json();
-        if (res.error) return alert(res.error);
-        connectWs(joiningRoom.id, $('joinPassword').value || '');
+        const res = await (await fetch(API+'/rooms/'+joiningRoom.id+'/join', {method:'POST', body:fd})).json();
+        if(res.error) return alert(res.error);
+        connectWs(joiningRoom.id, $('joinPassword')?.value || '');
     } catch { alert('参加に失敗しました'); }
-}
+};
 
-function connectWs(rid, password) {
+function connectWs(rid, password){
     roomId = rid;
-    const wUrl = API.replace('http://', 'ws://').replace('https://', 'wss://');
+    const wUrl = API.replace('http://','ws://').replace('https://','wss://');
     ws = new WebSocket(wUrl + '/ws/' + rid);
-    ws.onopen = () => ws.send(JSON.stringify({type:'join', user_id:myId, user_name:myName, password}));
+    ws.onopen = ()=> ws.send(JSON.stringify({type:'join', user_id:myId, user_name:myName, password}));
     ws.onmessage = e => handleMsg(JSON.parse(e.data));
-    ws.onerror = () => alert('接続エラーが発生しました');
-    ws.onclose = () => {
-        if (roomId) {
-            roomId = null;
-            showRoomList();
-        }
-    };
+    ws.onerror = ()=> alert('接続エラー');
+    ws.onclose = ()=>{ roomId=null; showRoomList(); };
 }
 
-function handleMsg(m) {
-    if (m.type === 'joined') {
+function handleMsg(m){
+    if(m.type === 'joined'){
         roomName = m.room_name;
         $('chatRoomTitle').textContent = roomName;
+        users = m.users || [];
+        updatePresence();
         show('chatScreen');
-        updateUsers(m.users);
         loadHistory();
-    } else if (m.type === 'user_joined' || m.type === 'user_left') {
-        updateUsers(m.users);
-        addSys(m.type === 'user_joined' ? m.user_name + 'さんが参加' : m.user_name + 'さんが退出');
-    } else if (m.type === 'user' || m.type === 'agent') {
+        loadNotebook();
+    } else if(m.type === 'user_joined' || m.type === 'user_left'){
+        users = m.users || [];
+        updatePresence();
+        addSys(m.user_name + (m.type==='user_joined'?'さんが参加しました':'さんが退出しました'));
+    } else if(m.type === 'user' || m.type === 'agent' || m.type === 'proactive'){
         addMsg(m);
-    } else if (m.type === 'error') { alert(m.message); }
+        if((m.type==='agent' || m.type==='proactive') && ttsEnabled && !isQuietHours()) speak(m.content);
+        if(m.type==='agent'){ setExpression('happy', 1.0); setTimeout(resetExpression, 1500); }
+    } else if(m.type === 'whisper'){
+        addMsg({sender:m.from_user_name+'（ささやき）', sender_id:m.from_user_id, content:m.content, type:'whisper'});
+    } else if(m.type === 'nudge'){
+        nudgeScreen();
+        addSys(m.from_user_name + 'さんがあなたを呼んでいます');
+    } else if(m.type === 'reaction'){
+        addReactionToMessage(m.message_id, m.emoji);
+    } else if(m.type === 'note_added' || m.type === 'task_added' || m.type === 'event_added' || m.type === 'photo_added'){
+        loadNotebook();
+    } else if(m.type === 'error'){ alert(m.message); }
 }
 
-async function loadHistory() {
+async function loadHistory(){
     try {
-        const msgs = await (await fetch(API + '/rooms/' + roomId + '/messages?limit=50')).json();
+        const msgs = await (await fetch(API+'/rooms/'+roomId+'/messages?limit=100')).json();
         $('messages').innerHTML = '';
         msgs.forEach(addMsg);
     } catch {}
 }
 
-function addMsg(m) {
+function updatePresence(){
+    $('chatUserCount').textContent = users.length + '人在室';
+}
+
+function addMsg(m){
     const own = m.sender_id === myId || m.sender === myName;
     const div = document.createElement('div');
-    div.className = 'msg ' + (own ? 'own' : (m.type==='agent'?'agent':'other'));
-    div.innerHTML = '<div class="msg-name">' + esc(m.sender) + '</div><div class="msg-body">' + esc(m.content) + '</div>';
+    div.className = 'msg ' + (own?'own':(m.type==='agent'||m.type==='proactive'?'agent':'other'));
+    div.dataset.id = m.id || '';
+    const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
+    div.innerHTML = `<div class="msg-name">${esc(m.sender||'')} ${time?`<span style="font-size:0.7rem;color:var(--text-secondary)">${time}</span>`:''}</div>
+        <div class="msg-body" oncontextmenu="return showReactionMenu(event,'${esc(m.id||'')}')">${esc(m.content||'')}</div>
+        <div class="reactions" id="reactions-${esc(m.id||'')}"></div>`;
     $('messages').appendChild(div);
     $('messages').scrollTop = $('messages').scrollHeight;
 }
 
-function addSys(t) {
+function addSys(t){
     const div = document.createElement('div');
-    div.style.cssText = 'text-align:center;font-size:0.75rem;color:#888;padding:4px;';
-    div.textContent = t;
+    div.className='sys'; div.textContent=t;
     $('messages').appendChild(div);
     $('messages').scrollTop = $('messages').scrollHeight;
 }
 
-function updateUsers(users) {
-    $('chatUserCount').textContent = users.length + '人在室';
-    $('chatUsers').innerHTML = users.map(u => '<span style="margin-right:8px;">' + esc(u.user_name) + (u.user_id===myId?'(あなた)':'') + '</span>').join('');
+function addReactionToMessage(mid, emoji){
+    const row = $('reactions-'+esc(mid)); if(!row) return;
+    const s = document.createElement('span'); s.textContent = emoji; row.appendChild(s);
 }
 
-function sendMessage() {
+window.sendMessage = function(){
     const t = $('messageInput').value.trim();
-    if (!t || !ws) return;
-    if (ws.readyState !== WebSocket.OPEN) {
-        alert('接続が切れています。ページを更新してください。');
-        return;
-    }
+    if(!t || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({type:'message', sender:myName, content:t}));
     $('messageInput').value = '';
+};
+
+window.leaveRoom = function(){ if(ws){ ws.close(); ws=null; } roomId=null; showRoomList(); };
+
+// Reactions
+window.showReactionMenu = function(e, mid){
+    e.preventDefault();
+    if(!mid) return false;
+    const emojis = ['👍','❤️','😂','😮','🎉'];
+    const existing = document.getElementById('reaction-menu');
+    if(existing) existing.remove();
+    const menu = document.createElement('div');
+    menu.id='reaction-menu';
+    menu.style.cssText='position:fixed;left:'+e.clientX+'px;top:'+e.clientY+'px;background:#fff;border:1px solid var(--divider);display:flex;gap:4px;padding:4px;z-index:100;';
+    emojis.forEach(emoji=>{
+        const b=document.createElement('button'); b.textContent=emoji; b.style.fontSize='1.2rem';
+        b.onclick=()=>{ sendReaction(mid, emoji); menu.remove(); };
+        menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    setTimeout(()=>{ document.addEventListener('click', function close(){ menu.remove(); document.removeEventListener('click', close); }, {once:true}); }, 50);
+    return false;
+};
+
+function sendReaction(mid, emoji){
+    if(!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type:'reaction', message_id:mid, emoji}));
 }
 
-function leaveRoom() { if (ws) { ws.close(); ws = null; } roomId = null; showRoomList(); }
-function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+// Voice
+function isQuietHours(){
+    if(!quietEnabled) return false;
+    const h = new Date().getHours();
+    return h >= 0 && h < 7;
+}
 
-refreshRooms();
+function speak(text){
+    if(!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP';
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+}
+
+window.toggleMic = function(){
+    const btn = $('micBtn');
+    if(!window.webkitSpeechRecognition){ alert('このブラウザは音声入力に対応していません'); return; }
+    if(recognition && recognition.listening){ recognition.stop(); return; }
+    recognition = new webkitSpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.listening = true;
+    recognition.onstart = ()=> btn.classList.add('recording');
+    recognition.onend = ()=>{ btn.classList.remove('recording'); recognition.listening=false; };
+    recognition.onresult = (e)=>{
+        const t = e.results[0][0].transcript;
+        $('messageInput').value = ($('messageInput').value + ' ' + t).trim();
+        sendMessage();
+    };
+    recognition.onerror = ()=> btn.classList.remove('recording');
+    recognition.start();
+};
+
+// Nudge effect
+function nudgeScreen(){
+    document.body.style.transform = 'translateX(-8px)';
+    setTimeout(()=> document.body.style.transform='translateX(8px)', 60);
+    setTimeout(()=> document.body.style.transform='translateX(-4px)', 120);
+    setTimeout(()=> document.body.style.transform='translateX(4px)', 180);
+    setTimeout(()=> document.body.style.transform='none', 240);
+}
+
+// Notebook
+let currentTab = 'notes';
+window.showNotebook = function(){ $('notebookSheet').classList.add('active'); loadNotebook(); };
+window.hideNotebook = function(){ $('notebookSheet').classList.remove('active'); };
+window.setTab = function(tab){
+    currentTab = tab;
+    document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+    renderNotebook();
+};
+
+async function loadNotebook(){
+    if(!roomId) return;
+    try {
+        const [notes, tasks, events, photos] = await Promise.all([
+            fetch(API+'/rooms/'+roomId+'/notes').then(r=>r.json()),
+            fetch(API+'/rooms/'+roomId+'/tasks').then(r=>r.json()),
+            fetch(API+'/rooms/'+roomId+'/events').then(r=>r.json()),
+            fetch(API+'/rooms/'+roomId+'/photos').then(r=>r.json())
+        ]);
+        window._notebook = {notes, tasks, events, photos};
+        renderNotebook();
+    } catch {}
+}
+window.loadNotebook = loadNotebook;
+
+function renderNotebook(){
+    const body = $('notebookBody');
+    const data = window._notebook || {notes:[], tasks:[], events:[], photos:[]};
+    if(currentTab==='notes') renderNotes(data.notes);
+    else if(currentTab==='tasks') renderTasks(data.tasks);
+    else renderEvents(data.events);
+}
+
+function renderNotes(notes){
+    const html = [`<div class="addrow">
+        <input id="noteContent" placeholder="メモを入力…">
+        <select id="noteCategory"><option value="general">一般</option><option value="shopping">買い物</option><option value="appointment">予定</option></select>
+        <button class="smallbtn" onclick="addNote()">追加</button>
+    </div>`];
+    notes.forEach(n=>{
+        html.push(`<div class="note-row ${n.is_pinned?'pinned':''}">
+            <div>
+                <div style="font-size:0.95rem;">${esc(n.content)}</div>
+                <div class="meta">${categoryLabel(n.category)} · ${n.created_by||''}</div>
+            </div>
+            <div class="note-actions">
+                <button class="smallbtn" onclick="pinNote('${esc(n.id)}')">${n.is_pinned?'解除':'ピン'}</button>
+            </div>
+        </div>`);
+    });
+    $('notebookBody').innerHTML = html.join('');
+}
+function categoryLabel(c){
+    return {general:'一般', shopping:'買い物', appointment:'予定', task:'お手伝い'}[c] || c;
+}
+
+function renderTasks(tasks){
+    const html = [`<div class="addrow">
+        <input id="taskTitle" placeholder="お手伝いを入力…">
+        <input id="taskAssign" placeholder="担当者" style="max-width:120px;">
+        <button class="smallbtn" onclick="addTask()">追加</button>
+    </div>`];
+    tasks.forEach(t=>{
+        html.push(`<div class="task-row">
+            <div style="opacity:${t.done?0.6:1};">
+                <div style="text-decoration:${t.done?'line-through':'none'};font-size:0.95rem;">${esc(t.title)}</div>
+                <div class="meta">${t.assignee_name?'担当:'+esc(t.assignee_name)+' · ':''}${t.due_at?new Date(t.due_at).toLocaleString():''}</div>
+            </div>
+            <div class="task-actions">${t.done?'<span style="color:var(--ok);font-size:0.8rem;">完了</span>':`<button class="smallbtn" onclick="doneTask('${esc(t.id)}')">完了</button>`}</div>
+        </div>`);
+    });
+    $('notebookBody').innerHTML = html.join('');
+}
+
+function renderEvents(events){
+    const html = [`<div class="addrow">
+        <input id="eventTitle" placeholder="予定のタイトル…">
+        <input id="eventAt" type="datetime-local">
+        <button class="smallbtn" onclick="addEvent()">追加</button>
+    </div>`];
+    events.forEach(ev=>{
+        html.push(`<div class="event-row">
+            <div>
+                <div style="font-size:0.95rem;">${esc(ev.title)}</div>
+                <div class="meta">${new Date(ev.event_at).toLocaleString()}</div>
+            </div>
+        </div>`);
+    });
+    $('notebookBody').innerHTML = html.join('');
+}
+
+window.addNote = async function(){
+    const content = $('noteContent').value.trim(); if(!content || !roomId) return;
+    const fd = new FormData();
+    fd.append('content', content); fd.append('category', $('noteCategory').value); fd.append('created_by', myName);
+    await fetch(API+'/rooms/'+roomId+'/notes', {method:'POST', body:fd});
+    $('noteContent').value=''; loadNotebook();
+};
+window.pinNote = async function(id){
+    if(!roomId) return;
+    await fetch(API+'/rooms/'+roomId+'/notes/'+id+'/pin', {method:'POST'});
+    loadNotebook();
+};
+window.addTask = async function(){
+    const title = $('taskTitle').value.trim(); if(!title || !roomId) return;
+    const fd = new FormData();
+    fd.append('title', title); fd.append('created_by', myName);
+    fd.append('assignee_name', $('taskAssign').value.trim());
+    await fetch(API+'/rooms/'+roomId+'/tasks', {method:'POST', body:fd});
+    $('taskTitle').value=''; $('taskAssign').value=''; loadNotebook();
+};
+window.doneTask = async function(id){
+    if(!roomId) return;
+    await fetch(API+'/rooms/'+roomId+'/tasks/'+id+'/done', {method:'POST'});
+    loadNotebook();
+};
+window.addEvent = async function(){
+    const title = $('eventTitle').value.trim(); const at = $('eventAt').value;
+    if(!title || !at || !roomId) return;
+    const fd = new FormData();
+    fd.append('title', title); fd.append('event_at', new Date(at).toISOString()); fd.append('created_by', myName);
+    await fetch(API+'/rooms/'+roomId+'/events', {method:'POST', body:fd});
+    $('eventTitle').value=''; $('eventAt').value=''; loadNotebook();
+};
+
+// Settings
+window.showSettings = function(){
+    $('settingsName').value = myName;
+    $('settingsQuick').value = localStorage.getItem('famichibi_quick') || 'おはよう,ただいま,おかえり,ありがとう,がんばって';
+    $('settingsTts').checked = ttsEnabled;
+    $('settingsQuiet').checked = quietEnabled;
+    $('vrmName').textContent = selectedVrmFile ? selectedVrmFile.name : (selectedVrmUrl ? selectedVrmUrl.split('/').pop() : 'デフォルト');
+    $('settingsModal').classList.add('active');
+};
+window.hideSettings = function(){ $('settingsModal').classList.remove('active'); };
+
+window.onVrmSelected = async function(e){
+    const file = e.target.files[0]; if(!file) return;
+    selectedVrmFile = file;
+    const localUrl = URL.createObjectURL(file);
+    selectedVrmUrl = localUrl;
+    localStorage.setItem('famichibi_vrm_url', localUrl);
+    loadVrm(localUrl);
+    $('vrmName').textContent = file.name;
+    // Also upload to server for persistence across reloads
+    try {
+        const fd = new FormData(); fd.append('file', file);
+        const res = await (await fetch(API+'/upload/avatar', {method:'POST', body:fd})).json();
+        if(res.url){ selectedVrmUrl = API + res.url; localStorage.setItem('famichibi_vrm_url', selectedVrmUrl); }
+    } catch(err){ console.error('avatar upload failed', err); }
+};
+
+window.saveSettings = function(){
+    myName = $('settingsName').value.trim() || 'Webユーザー';
+    localStorage.setItem('famichibi_name', myName);
+    localStorage.setItem('famichibi_quick', $('settingsQuick').value);
+    ttsEnabled = !!$('settingsTts').checked;
+    quietEnabled = !!$('settingsQuiet').checked;
+    localStorage.setItem('famichibi_tts', ttsEnabled?'1':'0');
+    localStorage.setItem('famichibi_quiet', quietEnabled?'1':'0');
+    loadQuickPhrases();
+    hideSettings();
+};
+
+// Init
+$('landingName').value = myName;
+loadQuickPhrases();
+loadVrm(selectedVrmUrl);
+
 </script>
 </body>
 </html>
