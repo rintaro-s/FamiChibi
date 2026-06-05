@@ -58,6 +58,7 @@ fun ChatScreen(
     var userId by remember { mutableStateOf("") }
     var roomId by remember { mutableStateOf("") }
     var serverUrl by remember { mutableStateOf("http://10.0.2.2:8000") }
+    var serverId by remember { mutableStateOf("default") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var chatInput by remember { mutableStateOf("") }
     var quickPhrases by remember { mutableStateOf(listOf<String>()) }
@@ -135,12 +136,13 @@ fun ChatScreen(
         userId = prefs.userId.first()
         roomId = prefs.roomId.first()
         serverUrl = prefs.serverUrl.first()
+        serverId = prefs.activeServerId.first()
         quickPhrases = prefs.quickPhrases.first()
         ttsEnabled = prefs.ttsEnabled.first()
         if (roomId.isNotEmpty()) {
-            ChatWebSocket.connect(serverUrl, roomId, userId, userName, "")
+            ChatWebSocket.connect(serverUrl, serverId, roomId, userId, userName, "")
             try {
-                val response = httpClient.get("$serverUrl/rooms/$roomId/messages?limit=100")
+                val response = httpClient.get("$serverUrl/s/$serverId/rooms/$roomId/messages?limit=100")
                 if (response.status == HttpStatusCode.OK) {
                     messages = Json.decodeFromString(response.bodyAsText())
                 }
@@ -317,14 +319,14 @@ fun ChatScreen(
                 Text("リアクション", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("👍", "❤️", "😂", "😮", "🎉").forEach { emoji ->
+                    listOf("いいね", "好き", "笑", "驚き", "応援").forEach { label ->
                         Button(
                             onClick = {
-                                ChatWebSocket.sendReaction(selectedMessageId, emoji)
+                                ChatWebSocket.sendReaction(selectedMessageId, label)
                                 showReactionSheet = false
                             },
-                            modifier = Modifier.size(56.dp)
-                        ) { Text(emoji, style = MaterialTheme.typography.headlineSmall) }
+                            modifier = Modifier.weight(1f)
+                        ) { Text(label, style = MaterialTheme.typography.bodySmall) }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -366,7 +368,7 @@ fun ChatScreen(
                                         append("content", whisperText)
                                     }
                                 )
-                                httpClient.post("$serverUrl/rooms/$roomId/whisper") { setBody(fd) }
+                                httpClient.post("$serverUrl/s/$serverId/rooms/$roomId/whisper") { setBody(fd) }
                                 messages = messages + ChatMessage(
                                     sender = "${userName} → ${t.user_name}（ささやき）",
                                     sender_id = userId,

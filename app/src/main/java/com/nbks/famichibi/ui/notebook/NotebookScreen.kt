@@ -68,8 +68,10 @@ fun NotebookScreen(
 
     var roomId by remember { mutableStateOf("") }
     var serverUrl by remember { mutableStateOf("http://10.0.2.2:8000") }
+    var serverId by remember { mutableStateOf("default") }
     var userName by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf(0) }
+    var aiEnabled by remember { mutableStateOf(false) }
 
     var notes by remember { mutableStateOf(listOf<NoteItem>()) }
     var tasks by remember { mutableStateOf(listOf<TaskItem>()) }
@@ -88,9 +90,9 @@ fun NotebookScreen(
         if (roomId.isEmpty()) return
         scope.launch {
             try {
-                notes = Json.decodeFromString(httpClient.get("$serverUrl/rooms/$roomId/notes").bodyAsText())
-                tasks = Json.decodeFromString(httpClient.get("$serverUrl/rooms/$roomId/tasks").bodyAsText())
-                events = Json.decodeFromString(httpClient.get("$serverUrl/rooms/$roomId/events").bodyAsText())
+                notes = Json.decodeFromString(httpClient.get("$serverUrl/s/$serverId/rooms/$roomId/notes").bodyAsText())
+                tasks = Json.decodeFromString(httpClient.get("$serverUrl/s/$serverId/rooms/$roomId/tasks").bodyAsText())
+                events = Json.decodeFromString(httpClient.get("$serverUrl/s/$serverId/rooms/$roomId/events").bodyAsText())
             } catch (e: Exception) {
                 snackbarHostState.showSnackbar("読み込みに失敗しました")
             }
@@ -100,7 +102,9 @@ fun NotebookScreen(
     LaunchedEffect(Unit) {
         roomId = prefs.roomId.first()
         serverUrl = prefs.serverUrl.first()
+        serverId = prefs.activeServerId.first()
         userName = prefs.userName.first()
+        aiEnabled = prefs.aiEnabled.first()
         refresh()
     }
 
@@ -109,7 +113,7 @@ fun NotebookScreen(
         scope.launch {
             try {
                 httpClient.submitForm(
-                    url = "$serverUrl/rooms/$roomId/notes",
+                    url = "$serverUrl/s/$serverId/rooms/$roomId/notes",
                     formParameters = Parameters.build {
                         append("content", newNote)
                         append("category", noteCategory)
@@ -125,7 +129,7 @@ fun NotebookScreen(
     fun pinNote(id: String) {
         scope.launch {
             try {
-                httpClient.post("$serverUrl/rooms/$roomId/notes/$id/pin")
+                httpClient.post("$serverUrl/s/$serverId/rooms/$roomId/notes/$id/pin")
                 refresh()
             } catch (_: Exception) {}
         }
@@ -136,7 +140,7 @@ fun NotebookScreen(
         scope.launch {
             try {
                 httpClient.submitForm(
-                    url = "$serverUrl/rooms/$roomId/tasks",
+                    url = "$serverUrl/s/$serverId/rooms/$roomId/tasks",
                     formParameters = Parameters.build {
                         append("title", newTask)
                         append("created_by", userName)
@@ -153,7 +157,7 @@ fun NotebookScreen(
     fun doneTask(id: String) {
         scope.launch {
             try {
-                httpClient.post("$serverUrl/rooms/$roomId/tasks/$id/done")
+                httpClient.post("$serverUrl/s/$serverId/rooms/$roomId/tasks/$id/done")
                 refresh()
             } catch (_: Exception) {}
         }
@@ -164,7 +168,7 @@ fun NotebookScreen(
         scope.launch {
             try {
                 httpClient.submitForm(
-                    url = "$serverUrl/rooms/$roomId/events",
+                    url = "$serverUrl/s/$serverId/rooms/$roomId/events",
                     formParameters = Parameters.build {
                         append("title", newEventTitle)
                         append("event_at", newEventAt)
@@ -178,6 +182,30 @@ fun NotebookScreen(
         }
     }
 
+    fun summarizeNotes() {
+        if (roomId.isEmpty()) return
+        scope.launch {
+            try {
+                val context = notes.joinToString("\n") { it.content }
+                if (context.isBlank()) {
+                    snackbarHostState.showSnackbar("メモがありません")
+                    return@launch
+                }
+                val response = httpClient.submitForm(
+                    url = "$serverUrl/s/$serverId/summarize",
+                    formParameters = Parameters.build { append("context", context) }
+                )
+                if (response.status == HttpStatusCode.OK) {
+                    val body = Json.decodeFromString<Map<String, String>>(response.bodyAsText())
+                    val summary = body["summary"] ?: "要約できませんでした"
+                    snackbarHostState.showSnackbar("要約: $summary")
+                }
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("要約に失敗しました")
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -187,7 +215,12 @@ fun NotebookScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("家族ノート", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = { refresh() }) { Text("更新") }
+            Row {
+                if (aiEnabled && tab == 0) {
+                    TextButton(onClick = { summarizeNotes() }) { Text("要約") }
+                }
+                TextButton(onClick = { refresh() }) { Text("更新") }
+            }
         }
 
         TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary) {

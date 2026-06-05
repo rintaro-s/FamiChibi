@@ -38,11 +38,21 @@ data class QuickPhrase(
     val text: String
 )
 
+@Serializable
+data class ServerConfig(
+    val id: String = "default",
+    val name: String = "Default",
+    val url: String = "http://10.0.2.2:8000",
+    val password: String = ""
+)
+
 class PreferencesRepository(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
         val SERVER_URL = stringPreferencesKey("server_url")
+        val ACTIVE_SERVER_ID = stringPreferencesKey("active_server_id")
+        val SERVERS = stringPreferencesKey("servers")
         val ROOM_ID = stringPreferencesKey("room_id")
         val USER_NAME = stringPreferencesKey("user_name")
         val USER_ID = stringPreferencesKey("user_id")
@@ -58,9 +68,16 @@ class PreferencesRepository(private val context: Context) {
         val TTS_ENABLED = stringPreferencesKey("tts_enabled")
         val VOICE_INPUT_ENABLED = stringPreferencesKey("voice_input_enabled")
         val LAST_BRIEFING_DATE = stringPreferencesKey("last_briefing_date")
+        val VOICEVOX_SPEAKER = intPreferencesKey("voicevox_speaker")
+        val AI_ENABLED = stringPreferencesKey("ai_enabled")
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[SERVER_URL] ?: "http://10.0.2.2:8000" }
+    val activeServerId: Flow<String> = context.dataStore.data.map { it[ACTIVE_SERVER_ID] ?: "default" }
+    val servers: Flow<List<ServerConfig>> = context.dataStore.data.map {
+        val str = it[SERVERS] ?: "[]"
+        try { json.decodeFromString(str) } catch (_: Exception) { emptyList() }
+    }
     val roomId: Flow<String> = context.dataStore.data.map { it[ROOM_ID] ?: "" }
     val userName: Flow<String> = context.dataStore.data.map { it[USER_NAME] ?: "お兄ちゃん" }
     val userId: Flow<String> = context.dataStore.data.map { it[USER_ID] ?: "" }
@@ -87,8 +104,12 @@ class PreferencesRepository(private val context: Context) {
     val ttsEnabled: Flow<Boolean> = context.dataStore.data.map { it[TTS_ENABLED] != "0" }
     val voiceInputEnabled: Flow<Boolean> = context.dataStore.data.map { it[VOICE_INPUT_ENABLED] != "0" }
     val lastBriefingDate: Flow<String> = context.dataStore.data.map { it[LAST_BRIEFING_DATE] ?: "" }
+    val voicevoxSpeaker: Flow<Int> = context.dataStore.data.map { it[VOICEVOX_SPEAKER] ?: 58 }
+    val aiEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_ENABLED] != "0" }
 
     suspend fun setServerUrl(url: String) { context.dataStore.edit { it[SERVER_URL] = url } }
+    suspend fun setActiveServerId(id: String) { context.dataStore.edit { it[ACTIVE_SERVER_ID] = id } }
+    suspend fun setServers(list: List<ServerConfig>) { context.dataStore.edit { it[SERVERS] = json.encodeToString(list) } }
     suspend fun setRoomId(id: String) { context.dataStore.edit { it[ROOM_ID] = id } }
     suspend fun setUserName(name: String) { context.dataStore.edit { it[USER_NAME] = name } }
     suspend fun setUserId(id: String) { context.dataStore.edit { it[USER_ID] = id } }
@@ -107,4 +128,6 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setTtsEnabled(enabled: Boolean) { context.dataStore.edit { it[TTS_ENABLED] = if (enabled) "1" else "0" } }
     suspend fun setVoiceInputEnabled(enabled: Boolean) { context.dataStore.edit { it[VOICE_INPUT_ENABLED] = if (enabled) "1" else "0" } }
     suspend fun setLastBriefingDate(date: String) { context.dataStore.edit { it[LAST_BRIEFING_DATE] = date } }
+    suspend fun setVoicevoxSpeaker(speaker: Int) { context.dataStore.edit { it[VOICEVOX_SPEAKER] = speaker } }
+    suspend fun setAiEnabled(enabled: Boolean) { context.dataStore.edit { it[AI_ENABLED] = if (enabled) "1" else "0" } }
 }

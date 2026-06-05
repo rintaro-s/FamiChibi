@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FamiChibi</title>
+<style>
+  :root { --bg:#F7F5F2; --surface:#FFFFFF; --surface-2:#EAE6E1; --divider:#D4CFC8; --text:#1A1A1A; --text-secondary:#6B6660; --accent:#C45C3E; --accent-text:#FFFFFF; --danger:#B5423F; --ok:#3E7C5C; --voice:#3E6C8C; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+  button, input, select, textarea { font-family:inherit; color:inherit; }
+  button { cursor:pointer; border:none; background:none; }
+  #app { height:100%; display:flex; flex-direction:column; }
+  .screen { display:none; flex-direction:column; height:100%; }
+  .screen.active { display:flex; }
+
+  .appbar { height:56px; background:var(--surface); border-bottom:1px solid var(--divider); display:flex; align-items:center; justify-content:space-between; padding:0 12px; flex-shrink:0; }
+  .appbar h1 { font-size:1rem; font-weight:600; }
+  .iconbtn { width:40px; height:40px; display:inline-flex; align-items:center; justify-content:center; font-size:0.9rem; color:var(--text); background:transparent; }
+  .iconbtn:active { background:var(--surface-2); }
+
+  .content { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+
+  .landing { justify-content:center; padding:24px; }
+  .landing h2 { font-size:1.75rem; margin-bottom:8px; }
+  .landing p { color:var(--text-secondary); margin-bottom:24px; }
+  .field { width:100%; padding:14px 12px; margin-bottom:12px; border:1px solid var(--divider); background:var(--surface); font-size:1rem; outline:none; }
+  .field:focus { border-color:var(--accent); }
+  .btn { width:100%; padding:14px 12px; font-size:1rem; font-weight:600; background:var(--accent); color:var(--accent-text); }
+  .btn:active { opacity:0.9; }
+  .btn.secondary { background:var(--surface-2); color:var(--text); border:1px solid var(--divider); }
+  .btn.voice { background:var(--voice); color:#fff; }
+
+  .list-item { padding:14px 16px; border-bottom:1px solid var(--divider); cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .list-item:hover { background:var(--bg); }
+  .list-item.active { background:#FFF5F2; border-left:3px solid var(--accent); }
+  .meta { font-size:0.8rem; color:var(--text-secondary); }
+
+  .file-label { display:inline-block; padding:10px 12px; border:1px dashed var(--divider); width:100%; text-align:center; color:var(--text-secondary); margin-bottom:12px; }
+
+  /* Stage */
+  #stageWrap { width:100%; height:32vh; max-height:300px; min-height:180px; position:relative; border-bottom:1px solid var(--divider); }
+  #stageWrap canvas { display:block; width:100%; height:100%; }
+  #stageLabel { position:absolute; bottom:8px; left:12px; right:12px; font-size:0.8rem; color:var(--text-secondary); pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Messages */
+  .messages { flex:1; overflow-y:auto; padding:8px 0 16px; }
+  .msg { width:100%; padding:10px 16px; display:flex; flex-direction:column; }
+  .msg.own { align-items:flex-end; }
+  .msg.other { align-items:flex-start; }
+  .msg.agent { align-items:flex-start; background:#FAF8F5; border-bottom:1px solid var(--divider); }
+  .msg-name { font-size:0.75rem; color:var(--text-secondary); margin-bottom:4px; }
+  .msg-body { max-width:80%; padding:10px 12px; font-size:0.95rem; line-height:1.45; }
+  .msg.own .msg-body { background:var(--surface-2); color:var(--text); }
+  .msg.other .msg-body { background:var(--surface); border:1px solid var(--divider); }
+  .msg.agent .msg-body { background:transparent; border:none; padding-left:0; }
+  .sys { text-align:center; font-size:0.75rem; color:var(--text-secondary); padding:6px 16px; }
+
+  /* Input */
+  .inputbar { border-top:1px solid var(--divider); background:var(--surface); padding:8px 12px; flex-shrink:0; }
+  .quick-chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; }
+  .quick-chips button { flex-shrink:0; padding:6px 10px; font-size:0.85rem; background:var(--bg); border:1px solid var(--divider); color:var(--text); }
+  .inputrow { display:flex; gap:8px; align-items:center; }
+  .inputrow input { flex:1; padding:12px; border:1px solid var(--divider); background:var(--bg); font-size:1rem; outline:none; }
+  .inputrow input:focus { border-color:var(--accent); }
+
+  /* Sheet / modal */
+  .sheet, .modal { position:fixed; inset:0; display:none; z-index:10; }
+  .sheet.active, .modal.active { display:flex; }
+  .sheet .backdrop, .modal .backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.35); }
+  .sheet .panel { position:absolute; left:0; right:0; bottom:0; top:10vh; background:var(--surface); display:flex; flex-direction:column; transform:translateY(100%); transition:transform 0.25s ease; }
+  .sheet.active .panel { transform:translateY(0); }
+  .modal .panel { position:absolute; left:16px; right:16px; top:50%; transform:translateY(-50%) scale(0.96); opacity:0; background:var(--surface); padding:20px; border:1px solid var(--divider); max-height:84vh; overflow-y:auto; transition:transform 0.2s ease, opacity 0.2s ease; }
+  .modal.active .panel { transform:translateY(-50%) scale(1); opacity:1; }
+  .sheet-header { height:56px; border-bottom:1px solid var(--divider); display:flex; align-items:center; justify-content:space-between; padding:0 12px; }
+  .tabs { display:flex; border-bottom:1px solid var(--divider); }
+  .tabs button { flex:1; padding:12px; font-size:0.9rem; font-weight:500; color:var(--text-secondary); border-bottom:2px solid transparent; background:none; }
+  .tabs button.active { color:var(--accent); border-color:var(--accent); }
+  .sheet-body { flex:1; overflow-y:auto; }
+
+  .addrow { display:flex; gap:8px; padding:12px; border-bottom:1px solid var(--divider); }
+  .addrow input, .addrow select { flex:1; padding:10px; border:1px solid var(--divider); background:var(--bg); }
+
+  .setting-row { padding:12px 0; border-bottom:1px solid var(--divider); }
+  .setting-row label { display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:6px; }
+
+  /* Reaction menu */
+  .reaction-menu { position:fixed; background:var(--surface); border:1px solid var(--divider); display:flex; gap:4px; padding:4px; z-index:100; }
+  .reaction-menu button { padding:6px 10px; font-size:0.85rem; background:var(--bg); border:1px solid var(--divider); }
+
+  /* Voice UI */
+  .voice-participants { display:flex; flex-wrap:wrap; gap:12px; padding:16px; justify-content:center; }
+  .voice-participant { width:80px; text-align:center; }
+  .voice-avatar { width:64px; height:64px; border-radius:50%; background:var(--surface-2); margin:0 auto 6px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; }
+  .voice-avatar.speaking { box-shadow:0 0 0 3px var(--voice); }
+
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#121212; --surface:#1E1E1E; --surface-2:#2A2A2A; --divider:#3A3A3A; --text:#F2F2F2; --text-secondary:#A8A29E; }
+    .msg.agent { background:#1A1816; }
+    .server-row.active { background:#2A1E1A; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+
+  <!-- LANDING -->
+  <div id="landingScreen" class="screen active landing">
+    <h2>FamiChibi</h2>
+    <p>家族とAIアバターが一緒に過ごす、やさしい空間。</p>
+    <button class="btn" onclick="window.showHosts()">はじめる</button>
+  </div>
+
+  <!-- HOSTS -->
+  <div id="hostsScreen" class="screen">
+    <div class="appbar">
+      <h1>ホスト</h1>
+      <button class="iconbtn" onclick="window.showAddHost()">追加</button>
+    </div>
+    <div class="content">
+      <div id="hostList"></div>
+      <div style="padding:16px;">
+        <p class="meta">ホストは物理的なサーバーです。ホストを追加すると、その上にあるコミュニティサーバーを探せます。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD HOST -->
+  <div id="addHostScreen" class="screen">
+    <div class="appbar">
+      <h1>ホストを追加</h1>
+      <button class="iconbtn" onclick="window.showHosts()">閉じる</button>
+    </div>
+    <div class="content" style="padding:16px;">
+      <input id="addHostUrl" class="field" placeholder="URL (例: http://192.168.1.10:8000)" value="http://localhost:8000">
+      <input id="addHostName" class="field" placeholder="表示名" value="My Host">
+      <button class="btn" onclick="window.addHost()">追加</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="window.scanLocal()">LAN検索</button>
+      <div id="scanResults" style="margin-top:12px;"></div>
+      <button class="btn secondary" style="margin-top:8px;" onclick="window.showHosts()">キャンセル</button>
+    </div>
+  </div>
+
+  <!-- SERVERS (on a host) -->
+  <div id="serversScreen" class="screen">
+    <div class="appbar">
+      <button class="iconbtn" onclick="window.showHosts()">戻る</button>
+      <h1 id="serversHostName">サーバー一覧</h1>
+      <button class="iconbtn" onclick="window.showCreateServer()">追加</button>
+    </div>
+    <div class="content">
+      <div id="serverList"></div>
+    </div>
+  </div>
+
+  <!-- CREATE SERVER -->
+  <div id="createServerScreen" class="screen">
+    <div class="appbar">
+      <h1>サーバー作成</h1>
+      <button class="iconbtn" onclick="window.showServers()">閉じる</button>
+    </div>
+    <div class="content" style="padding:16px;">
+      <input id="newServerName" class="field" placeholder="サーバー名">
+      <input id="newServerPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
+      <button class="btn" onclick="window.createServer()">作成</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="window.showServers()">キャンセル</button>
+    </div>
+  </div>
+
+  <!-- CHANNELS (in a server) -->
+  <div id="channelsScreen" class="screen">
+    <div class="appbar">
+      <button class="iconbtn" onclick="window.showServers()">戻る</button>
+      <div>
+        <div id="channelsServerName" style="font-size:0.95rem;font-weight:600;">サーバー</div>
+        <div class="meta" id="channelsServerMeta">0メンバー</div>
+      </div>
+      <button class="iconbtn" onclick="window.showServerSettings()">設定</button>
+    </div>
+    <div class="content">
+      <div style="padding:12px 16px;">
+        <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:8px;">テキストチャンネル</div>
+        <div id="textChannelList"></div>
+      </div>
+      <div style="padding:12px 16px;">
+        <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:8px;">ボイスチャンネル</div>
+        <div id="voiceChannelList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE CHANNEL -->
+  <div id="createChannelScreen" class="screen">
+    <div class="appbar">
+      <h1>チャンネル作成</h1>
+      <button class="iconbtn" onclick="window.showChannels()">閉じる</button>
+    </div>
+    <div class="content" style="padding:16px;">
+      <input id="newChannelName" class="field" placeholder="チャンネル名">
+      <select id="newChannelType" class="field">
+        <option value="text">テキスト</option>
+        <option value="voice">ボイス</option>
+      </select>
+      <input id="newChannelPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
+      <button class="btn" onclick="window.createChannel()">作成</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="window.showChannels()">キャンセル</button>
+    </div>
+  </div>
+
+  <!-- TEXT CHAT -->
+  <div id="chatScreen" class="screen">
+    <div class="appbar">
+      <button class="iconbtn" onclick="window.showChannels()">戻る</button>
+      <div>
+        <div id="chatChannelTitle" style="font-size:0.95rem;font-weight:600;">チャンネル</div>
+        <div class="meta" id="chatMeta">0人在室</div>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <button class="iconbtn" onclick="window.showNotebook()">ノート</button>
+        <button class="iconbtn" onclick="window.showProfile()">設定</button>
+        <button class="iconbtn" onclick="window.leaveChannel()">退出</button>
+      </div>
+    </div>
+    <div id="stageWrap">
+      <canvas id="vrmCanvas"></canvas>
+      <div id="stageLabel">VRM: デフォルト</div>
+    </div>
+    <div id="messages" class="messages"></div>
+    <div class="inputbar">
+      <div class="quick-chips" id="quickChips"></div>
+      <div class="inputrow">
+        <button id="micBtn" class="iconbtn" onclick="window.toggleMic()" title="音声入力" style="font-size:0.75rem;">音声</button>
+        <input id="messageInput" placeholder="メッセージ…" onkeydown="if(event.key==='Enter') window.sendMessage()">
+        <button class="iconbtn" onclick="window.sendMessage()" title="送信" style="background:var(--accent);color:#fff;">送信</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VOICE CHANNEL -->
+  <div id="voiceScreen" class="screen">
+    <div class="appbar">
+      <button class="iconbtn" onclick="window.leaveVoice()">戻る</button>
+      <div>
+        <div id="voiceChannelTitle" style="font-size:0.95rem;font-weight:600;">ボイスチャンネル</div>
+        <div class="meta" id="voiceMeta">0人在室</div>
+      </div>
+      <button class="iconbtn" onclick="window.toggleMute()" id="muteBtn">ミュート</button>
+    </div>
+    <div class="content">
+      <div class="voice-participants" id="voiceParticipants"></div>
+      <div style="padding:16px;text-align:center;">
+        <button class="btn danger" style="max-width:200px;" onclick="window.leaveVoice()">退出</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- NOTEBOOK SHEET -->
+<div id="notebookSheet" class="sheet">
+  <div class="backdrop" onclick="window.hideNotebook()"></div>
+  <div class="panel">
+    <div class="sheet-header">
+      <h2>家族ノート</h2>
+      <button class="iconbtn" onclick="window.hideNotebook()">閉じる</button>
+    </div>
+    <div class="tabs">
+      <button class="active" data-tab="notes" onclick="window.setTab('notes')">メモ</button>
+      <button data-tab="tasks" onclick="window.setTab('tasks')">お手伝い</button>
+      <button data-tab="events" onclick="window.setTab('events')">予定</button>
+    </div>
+    <div class="sheet-body" id="notebookBody"></div>
+  </div>
+</div>
+
+<!-- PROFILE MODAL -->
+<div id="profileModal" class="modal">
+  <div class="backdrop" onclick="window.hideProfile()"></div>
+  <div class="panel">
+    <div class="sheet-header" style="padding:0 0 12px;">
+      <h2>プロフィール</h2>
+      <button class="iconbtn" onclick="window.hideProfile()">閉じる</button>
+    </div>
+    <div class="setting-row">
+      <label>このサーバーでの名前</label>
+      <input id="profileName" class="field" placeholder="名前">
+    </div>
+    <div class="setting-row">
+      <label>VRMアバター</label>
+      <span id="profileVrmName" style="font-size:0.85rem;color:var(--text-secondary);">デフォルト</span>
+      <label class="file-label" style="margin-top:8px;">
+        <input type="file" id="profileVrmInput" accept=".vrm" style="display:none;" onchange="window.onProfileVrmSelected(event)">
+        VRMファイルを選択
+      </label>
+    </div>
+    <div class="setting-row">
+      <label>クイック返信（カンマ区切り）</label>
+      <input id="profileQuick" class="field" placeholder="おはよう,ただいま,おかえり,ありがとう">
+    </div>
+    <div class="setting-row">
+      <label>VOICEVOX 話者</label>
+      <select id="profileSpeaker" class="field">
+        <option value="58">58: 猫使ビィ</option>
+        <option value="3">3: ずんだもん</option>
+        <option value="2">2: 四国めたん</option>
+        <option value="8">8: 春日部つむぎ</option>
+        <option value="10">10: 雨晴はう</option>
+        <option value="14">14: 冥鳴ひまり</option>
+      </select>
+    </div>
+    <div class="setting-row" style="display:flex;gap:12px;align-items:center;justify-content:space-between;">
+      <span>アバター音声（TTS）</span>
+      <input type="checkbox" id="profileTts" style="width:20px;height:20px;">
+    </div>
+    <div class="setting-row" style="display:flex;gap:12px;align-items:center;justify-content:space-between;">
+      <span>おやすみモード</span>
+      <input type="checkbox" id="profileQuiet" style="width:20px;height:20px;">
+    </div>
+    <button class="btn" style="margin-top:8px;" onclick="window.saveProfile()">保存</button>
+    <button class="btn secondary" style="margin-top:8px;" onclick="window.hideProfile()">閉じる</button>
+  </div>
+</div>
+
+<!-- SERVER SETTINGS MODAL -->
+<div id="serverSettingsModal" class="modal">
+  <div class="backdrop" onclick="window.hideServerSettings()"></div>
+  <div class="panel">
+    <div class="sheet-header" style="padding:0 0 12px;">
+      <h2>サーバー設定</h2>
+      <button class="iconbtn" onclick="window.hideServerSettings()">閉じる</button>
+    </div>
+    <div id="serverSettingsBody"></div>
+    <button class="btn secondary" style="margin-top:8px;" onclick="window.hideServerSettings()">閉じる</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+// --- State ---
+let hosts = JSON.parse(localStorage.getItem('famichibi_hosts') || '[]');
+let activeHost = null;
+let activeServer = null;
+let activeChannel = null;
+let myId = localStorage.getItem('famichibi_my_id') || ('web_' + Math.random().toString(36).substr(2,9));
+localStorage.setItem('famichibi_my_id', myId);
+
+let ws = null;
+let peerConnections = {};
+let localStream = null;
+let isMuted = false;
+let currentTab = 'notes';
+
+function $(id){ return document.getElementById(id); }
+function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+function API(){ return activeHost ? activeHost.url : location.origin; }
+function serverPath(){ return activeServer ? `/s/${activeServer.id}` : ''; }
+
+function getProfile(){
+  const key = `profile_${activeServer?.id||'default'}`;
+  const raw = localStorage.getItem(key);
+  return raw ? JSON.parse(raw) : {name:'Webユーザー', vrmUrl:'', quick:'おはよう,ただいま,おかえり,ありがとう,がんばって', speaker:58, tts:false, quiet:false};
+}
+function setProfile(p){ localStorage.setItem(`profile_${activeServer?.id||'default'}`, JSON.stringify(p)); }
+
+// --- Three.js ---
+const stage = $('stageWrap');
+const canvas = $('vrmCanvas');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, stage.clientWidth/stage.clientHeight, 0.1, 100);
+camera.position.set(0,1.3,1.5); camera.lookAt(0,1.1,0);
+const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true, premultipliedAlpha:false});
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setClearColor(0x000000,0);
+scene.add(new THREE.AmbientLight(0xffffff,1.0));
+const key = new THREE.DirectionalLight(0xffffff,1.2); key.position.set(1,1,1); scene.add(key);
+const back = new THREE.DirectionalLight(0xffffff,0.5); back.position.set(-1,0.5,-1); scene.add(back);
+
+let vrm=null, clock=new THREE.Clock(), currentExpression='neutral', blinkTimer=0, isBlinking=false;
+function loadVrm(url){
+  if(!url) url='/static/avatars/AvatarSample_M.vrm';
+  $('stageLabel').textContent = 'VRM: ' + (url.split('/').pop()||'デフォルト');
+  const loader=new GLTFLoader();
+  loader.register(parser=>new VRMLoaderPlugin(parser));
+  loader.load(url, (gltf)=>{
+    try{
+      if(vrm){ scene.remove(vrm.scene); VRMUtils.deepDispose(vrm.scene); }
+      vrm=gltf.userData.vrm; if(!vrm) return;
+      VRMUtils.removeUnnecessaryVertices(gltf.scene);
+      scene.add(vrm.scene); vrm.scene.position.set(0,0,0); vrm.scene.rotation.set(0,0,0); vrm.scene.scale.set(1,1,1);
+      if(vrm.expressionManager){ vrm.expressionManager.setValue('neutral',1.0); currentExpression='neutral'; }
+    }catch(e){ console.error(e); }
+  }, undefined, (err)=>{ console.error('VRM load error', err); });
+}
+function setExpression(name,value=1.0){
+  if(!vrm||!vrm.expressionManager) return;
+  try{
+    if(currentExpression && currentExpression!==name) vrm.expressionManager.setValue(currentExpression,0.0);
+    vrm.expressionManager.setValue(name,value); currentExpression=name;
+  }catch(e){}
+}
+function resetExpression(){ setExpression('neutral',1.0); }
+function updateBlink(delta){
+  if(!vrm||!vrm.expressionManager) return;
+  blinkTimer-=delta;
+  if(blinkTimer<=0){
+    if(isBlinking){ vrm.expressionManager.setValue('blink',0.0); isBlinking=false; blinkTimer=2+Math.random()*4; }
+    else { vrm.expressionManager.setValue('blink',1.0); isBlinking=true; blinkTimer=0.15; }
+  }
+}
+function animate(){
+  requestAnimationFrame(animate);
+  const delta=clock.getDelta();
+  if(vrm){ vrm.update(delta); updateBlink(delta); }
+  renderer.render(scene,camera);
+}
+animate();
+window.addEventListener('resize',()=>{
+  const w=stage.clientWidth, h=stage.clientHeight;
+  camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);
+});
+
+// --- Screens ---
+function hideAllScreens(){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); }
+function show(id){ hideAllScreens(); $(id).classList.add('active'); }
+
+// Expose navigation to window
+window.showHosts = function(){ renderHosts(); show('hostsScreen'); };
+window.showAddHost = function(){ $('addHostUrl').value='http://localhost:8000'; $('addHostName').value='My Host'; $('scanResults').innerHTML=''; show('addHostScreen'); };
+window.showServers = function(){ renderServers(); show('serversScreen'); };
+window.showChannels = function(){ renderChannels(); show('channelsScreen'); };
+window.showChat = function(){ show('chatScreen'); };
+window.showVoice = function(){ show('voiceScreen'); };
+window.showCreateServer = function(){ $('newServerName').value=''; $('newServerPassword').value=''; show('createServerScreen'); };
+window.showCreateChannel = function(){ $('newChannelName').value=''; $('newChannelType').value='text'; $('newChannelPassword').value=''; show('createChannelScreen'); };
+
+// Hosts
+function renderHosts(){
+  const el=$('hostList');
+  if(!hosts.length){ el.innerHTML='<div class="list-item"><div class="meta">ホストがありません。追加してください。</div></div>'; return; }
+  el.innerHTML = hosts.map(h=>`<div class="list-item" onclick="window.selectHost('${esc(h.id)}')">
+    <div><div style="font-weight:600;">${esc(h.name)}</div><div class="meta">${esc(h.url)}</div></div>
+    <div class="meta">選択</div>
+  </div>`).join('');
+}
+
+window.selectHost = function(hid){
+  activeHost = hosts.find(h=>h.id===hid);
+  if(!activeHost){ alert('ホストが見つかりません'); return; }
+  showServers();
+};
+
+window.addHost = function(){
+  const url=$('addHostUrl').value.trim();
+  const name=$('addHostName').value.trim()||'Host';
+  if(!url) return alert('URLを入力してください');
+  const id='host_'+Math.random().toString(36).substr(2,9);
+  hosts.push({id, name, url});
+  localStorage.setItem('famichibi_hosts', JSON.stringify(hosts));
+  showHosts();
+};
+
+window.scanLocal = async function(){
+  const results=$('scanResults');
+  results.textContent='検索中...';
+  const found=[];
+  const bases=['192.168.1.','192.168.0.','10.0.2.'];
+  for(const base of bases){
+    for(let i=1;i<=20;i++){
+      try{
+        const ctrl=new AbortController();
+        const t=setTimeout(()=>ctrl.abort(),1500);
+        const res=await fetch(`http://${base}${i}:8000/discover`, {mode:'cors', signal:ctrl.signal});
+        clearTimeout(t);
+        if(res.ok){
+          const data=await res.json();
+          found.push({url:`http://${base}${i}:8000`, name:data.name||'FamiChibi'});
+        }
+      }catch(e){}
+    }
+  }
+  if(!found.length){ results.textContent='見つかりませんでした'; return; }
+  results.innerHTML=found.map(s=>`<div class="list-item" onclick="window.addFoundHost('${esc(s.url)}','${esc(s.name)}')" style="margin-top:4px;">
+    <div><div style="font-weight:600;">${esc(s.name)}</div><div class="meta">${esc(s.url)}</div></div>
+  </div>`).join('');
+};
+window.addFoundHost = function(url,name){
+  const id='host_'+Math.random().toString(36).substr(2,9);
+  hosts.push({id, name:name||'Host', url});
+  localStorage.setItem('famichibi_hosts', JSON.stringify(hosts));
+  showHosts();
+};
+
+// Servers
+async function renderServers(){
+  if(!activeHost){ showHosts(); return; }
+  $('serversHostName').textContent = activeHost.name;
+  try{
+    const list = await (await fetch(API()+'/servers')).json();
+    const el=$('serverList');
+    if(!list.length){ el.innerHTML='<div class="list-item"><div class="meta">サーバーがありません</div></div>'; return; }
+    el.innerHTML = list.map(s=>`<div class="list-item" onclick="window.selectServer('${esc(s.id)}')">
+      <div><div style="font-weight:600;">${esc(s.name)}</div><div class="meta">${s.has_password?'鍵付き · ':''}${s.member_count||0}メンバー</div></div>
+      <div class="meta">参加</div>
+    </div>`).join('') + `<div class="list-item" onclick="window.showCreateServer()"><div style="font-weight:600;color:var(--accent);">＋ 新規サーバー</div></div>`;
+  }catch(e){ $('serverList').innerHTML='<div class="list-item"><div class="meta">接続できません</div></div>'; }
+}
+
+window.selectServer = function(sid){
+  activeServer = {id:sid};
+  showChannels();
+};
+
+window.createServer = async function(){
+  const name=$('newServerName').value.trim();
+  if(!name) return alert('名前を入力してください');
+  const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value);
+  try{
+    const res=await (await fetch(API()+'/s/default/servers',{method:'POST',body:fd})).json();
+    if(res.error) return alert(res.error);
+    activeServer={id:res.id||res.server_id||'default'};
+    showChannels();
+  }catch(e){ alert('作成に失敗しました'); }
+};
+
+// Channels
+async function renderChannels(){
+  if(!activeHost || !activeServer){ showServers(); return; }
+  try{
+    const info = await (await fetch(API()+serverPath())).json();
+    $('channelsServerName').textContent = info.name;
+    $('channelsServerMeta').textContent = (info.member_count||0) + 'メンバー · ' + info.channels.length + 'チャンネル';
+    activeServer.name = info.name;
+    const textList=$('textChannelList');
+    const voiceList=$('voiceChannelList');
+    const textChs = info.channels.filter(c=>c.type!=='voice');
+    const voiceChs = info.channels.filter(c=>c.type==='voice');
+    textList.innerHTML = textChs.map(c=>`<div class="list-item" onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')">
+      <div><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
+      <div class="meta">参加</div>
+    </div>`).join('') + `<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`;
+    voiceList.innerHTML = voiceChs.map(c=>`<div class="list-item" onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')">
+      <div><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
+      <div class="meta">参加</div>
+    </div>`).join('') + `<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`;
+  }catch(e){ $('textChannelList').innerHTML='<div class="list-item"><div class="meta">接続できません</div></div>'; $('voiceChannelList').innerHTML=''; }
+}
+
+window.joinChannel = async function(cid, cname, ctype, hasPw){
+  activeChannel={id:cid,name:cname,type:ctype};
+  const profile=getProfile();
+  let password='';
+  if(hasPw==='true' || hasPw===true){
+    password=prompt('パスワードを入力してください')||'';
+  }
+  try{
+    const fd=new FormData();
+    fd.append('user_id',myId); fd.append('user_name',profile.name); fd.append('password',password);
+    const res=await fetch(API()+serverPath()+'/channels/'+cid+'/join',{method:'POST',body:fd});
+    if(!res.ok){ const data=await res.json(); alert(data.detail||'参加に失敗しました'); return; }
+  }catch(e){ alert('参加に失敗しました'); return; }
+  if(ctype==='voice'){
+    joinVoice(cid);
+  }else{
+    connectWs(cid, password);
+  }
+};
+
+window.createChannel = async function(){
+  const name=$('newChannelName').value.trim();
+  const type=$('newChannelType').value;
+  if(!name) return alert('名前を入力してください');
+  const fd=new FormData(); fd.append('name',name); fd.append('channel_type',type); fd.append('password',$('newChannelPassword').value);
+  try{
+    await fetch(API()+serverPath()+'/channels',{method:'POST',body:fd});
+    showChannels();
+  }catch(e){ alert('作成に失敗しました'); }
+};
+
+// WebSocket (text)
+function connectWs(cid, password){
+  if(ws){ ws.close(); ws=null; }
+  const wUrl = API().replace('http://','ws://').replace('https://','wss://');
+  ws = new WebSocket(wUrl+'/ws/'+activeServer.id+'/'+cid);
+  ws.onopen = ()=> ws.send(JSON.stringify({type:'join',user_id:myId,user_name:getProfile().name,password}));
+  ws.onmessage = e=> handleMsg(JSON.parse(e.data));
+  ws.onerror = ()=> alert('接続エラー');
+  ws.onclose = ()=>{ activeChannel=null; showChannels(); };
+}
+
+function handleMsg(m){
+  if(m.type==='joined'){
+    activeChannel.name=m.room_name;
+    $('chatChannelTitle').textContent = (activeServer?activeServer.name:'') + ' / ' + activeChannel.name;
+    $('chatMeta').textContent = (m.users?m.users.length:0)+'人在室';
+    show('chatScreen');
+    loadHistory();
+    loadNotebook();
+    loadQuickPhrases();
+    const profile=getProfile();
+    loadVrm(profile.vrmUrl);
+  } else if(m.type==='user_joined' || m.type==='user_left'){
+    $('chatMeta').textContent = (m.users?m.users.length:0)+'人在室';
+    addSys(m.user_name + (m.type==='user_joined'?'さんが参加しました':'さんが退出しました'));
+  } else if(m.type==='user' || m.type==='agent' || m.type==='proactive'){
+    addMsg(m);
+    const profile=getProfile();
+    if((m.type==='agent'||m.type==='proactive') && profile.tts && !isQuietHours()) speak(m.content);
+    if(m.type==='agent'){ setExpression('happy',1.0); setTimeout(resetExpression,1500); }
+  } else if(m.type==='whisper'){
+    addMsg({sender:m.from_user_name+'（ささやき）', sender_id:m.from_user_id, content:m.content, type:'whisper'});
+  } else if(m.type==='nudge'){
+    nudgeScreen();
+    addSys(m.from_user_name + 'さんがあなたを呼んでいます');
+  } else if(m.type==='reaction'){
+    addReactionToMessage(m.message_id, m.emoji);
+  } else if(m.type==='note_added'||m.type==='task_added'||m.type==='event_added'||m.type==='photo_added'){
+    loadNotebook();
+  } else if(m.type==='error'){ alert(m.message); }
+}
+
+async function loadHistory(){
+  if(!activeChannel) return;
+  try{
+    const msgs = await (await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/messages?limit=100')).json();
+    $('messages').innerHTML='';
+    msgs.forEach(addMsg);
+  }catch(e){}
+}
+
+function addMsg(m){
+  const profile=getProfile();
+  const own = m.sender_id===myId || m.sender===profile.name;
+  const div=document.createElement('div');
+  div.className='msg ' + (own?'own':(m.type==='agent'||m.type==='proactive'?'agent':'other'));
+  div.dataset.id = m.id||'';
+  const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
+  div.innerHTML = `<div class="msg-name">${esc(m.sender||'')} ${time?'<span style="font-size:0.7rem;color:var(--text-secondary)">'+time+'</span>':''}</div>
+    <div class="msg-body" oncontextmenu="return window.showReactionMenu(event,'${esc(m.id||'')}')">${esc(m.content||'')}</div>
+    <div class="reactions" id="reactions-${esc(m.id||'')}"></div>`;
+  $('messages').appendChild(div);
+  $('messages').scrollTop = $('messages').scrollHeight;
+}
+
+function addSys(t){
+  const div=document.createElement('div'); div.className='sys'; div.textContent=t;
+  $('messages').appendChild(div);
+  $('messages').scrollTop = $('messages').scrollHeight;
+}
+
+function addReactionToMessage(mid, emoji){
+  const row=$('reactions-'+esc(mid)); if(!row) return;
+  const s=document.createElement('span'); s.textContent=emoji; s.style.cssText='font-size:0.85rem;background:var(--surface-2);padding:2px 6px;border-radius:2px;margin-right:4px;';
+  row.appendChild(s);
+}
+
+window.sendMessage = function(){
+  const t=$('messageInput').value.trim();
+  if(!t || !ws || ws.readyState!==WebSocket.OPEN) return;
+  const profile=getProfile();
+  const msg={id:'local_'+Date.now(), sender:profile.name, sender_id:myId, content:t, type:'user', timestamp:new Date().toISOString()};
+  addMsg(msg);
+  ws.send(JSON.stringify({type:'message', sender:profile.name, sender_id:myId, content:t}));
+  $('messageInput').value='';
+};
+
+window.leaveChannel = function(){ if(ws){ ws.close(); ws=null; } activeChannel=null; showChannels(); };
+
+window.showReactionMenu = function(e,mid){
+  e.preventDefault();
+  if(!mid) return false;
+  const labels = ['いいね','好き','笑','驚き','応援'];
+  const existing=document.getElementById('reaction-menu');
+  if(existing) existing.remove();
+  const menu=document.createElement('div');
+  menu.id='reaction-menu'; menu.className='reaction-menu';
+  menu.style.left=e.clientX+'px'; menu.style.top=e.clientY+'px';
+  labels.forEach(label=>{
+    const b=document.createElement('button'); b.textContent=label;
+    b.onclick=()=>{ if(ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:'reaction', message_id:mid, emoji:label})); } menu.remove(); };
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  setTimeout(()=>{
+    document.addEventListener('click', function close(){ menu.remove(); document.removeEventListener('click',close); }, {once:true});
+  },50);
+  return false;
+};
+
+// Voice
+function isQuietHours(){
+  const profile=getProfile();
+  if(!profile.quiet) return false;
+  const h=new Date().getHours();
+  return h>=0 && h<7;
+}
+
+function speak(text){
+  if(!window.speechSynthesis) return;
+  const profile=getProfile();
+  if(profile.speaker){
+    const fd = new FormData();
+    fd.append('text', text); fd.append('speaker', profile.speaker);
+    fetch(API()+'/voicevox/synthesize',{method:'POST',body:fd})
+      .then(r=>r.ok?r.blob():null)
+      .then(blob=>{
+        if(!blob) return fallbackTTS(text);
+        const url = URL.createObjectURL(blob);
+        const a = new Audio(url);
+        a.play().catch(()=>fallbackTTS(text));
+      }).catch(()=>fallbackTTS(text));
+  } else {
+    fallbackTTS(text);
+  }
+}
+
+function fallbackTTS(text){
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='ja-JP'; u.rate=1.05;
+  window.speechSynthesis.speak(u);
+}
+
+window.toggleMic = function(){
+  const btn=$('micBtn');
+  if(!window.webkitSpeechRecognition){ alert('このブラウザは音声入力に対応していません'); return; }
+  const rec = new webkitSpeechRecognition();
+  rec.lang='ja-JP'; rec.interimResults=false; rec.continuous=false;
+  btn.style.background='#FBE9E8';
+  rec.onend = ()=>{ btn.style.background=''; };
+  rec.onresult = (e)=>{
+    const t=e.results[0][0].transcript;
+    $('messageInput').value = ($('messageInput').value+' '+t).trim();
+    window.sendMessage();
+  };
+  rec.onerror = ()=> btn.style.background='';
+  rec.start();
+};
+
+function nudgeScreen(){
+  document.body.style.transform='translateX(-8px)';
+  setTimeout(()=>document.body.style.transform='translateX(8px)',60);
+  setTimeout(()=>document.body.style.transform='translateX(-4px)',120);
+  setTimeout(()=>document.body.style.transform='translateX(4px)',180);
+  setTimeout(()=>document.body.style.transform='none',240);
+}
+
+// WebRTC Voice
+async function joinVoice(cid){
+  activeChannel={id:cid,name:activeChannel?.name||'Voice',type:'voice'};
+  show('voiceScreen');
+  $('voiceChannelTitle').textContent = activeChannel.name;
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    const profile=getProfile();
+    const fd=new FormData(); fd.append('user_id',myId); fd.append('user_name',profile.name);
+    await fetch(API()+serverPath()+'/channels/'+cid+'/voice/join',{method:'POST',body:fd});
+    // Connect WebSocket for signaling
+    const wUrl = API().replace('http://','ws://').replace('https://','wss://');
+    ws = new WebSocket(wUrl+'/ws/'+activeServer.id+'/'+cid);
+    ws.onopen = ()=> ws.send(JSON.stringify({type:'join',user_id:myId,user_name:profile.name}));
+    ws.onmessage = e=> handleVoiceSignal(JSON.parse(e.data));
+    ws.onclose = ()=>{ leaveVoiceCleanup(); };
+    updateVoiceUI([{user_id:myId, user_name:profile.name}]);
+  }catch(e){ alert('ボイスチャンネルに参加できません: '+e.message); showChannels(); }
+}
+
+function handleVoiceSignal(m){
+  if(m.type==='voice_user_joined'){
+    // New user joined, create offer
+    const pid = m.user_id;
+    if(pid===myId) return;
+    createPeerConnection(pid, true);
+  }else if(m.type==='voice_user_left'){
+    const pid=m.user_id;
+    if(peerConnections[pid]){ peerConnections[pid].close(); delete peerConnections[pid]; }
+    updateVoiceParticipants();
+  }else if(m.type==='voice_offer'){
+    handleOffer(m.from_user_id, m.sdp);
+  }else if(m.type==='voice_answer'){
+    handleAnswer(m.from_user_id, m.sdp);
+  }else if(m.type==='voice_ice'){
+    handleIce(m.from_user_id, m.candidate, m.sdpMLineIndex, m.sdpMid);
+  }else if(m.type==='joined'){
+    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
+    updateVoiceUI(m.users);
+    // Create offers to all existing users
+    (m.users||[]).forEach(u=>{ if(u.user_id!==myId) createPeerConnection(u.user_id, true); });
+  }else if(m.type==='user_joined'){
+    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
+    updateVoiceUI(m.users);
+  }else if(m.type==='user_left'){
+    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
+    updateVoiceUI(m.users);
+  }
+}
+
+async function createPeerConnection(pid, isInitiator){
+  if(peerConnections[pid]) return;
+  const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+  peerConnections[pid] = pc;
+  localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+  pc.ontrack = (e)=>{
+    // Remote audio track received
+    const audio = document.createElement('audio');
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    audio.id = 'audio-'+pid;
+    document.body.appendChild(audio);
+  };
+  pc.onicecandidate = (e)=>{
+    if(e.candidate && ws && ws.readyState===WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'voice_ice', to_user_id:pid, candidate:e.candidate.candidate, sdpMLineIndex:e.candidate.sdpMLineIndex, sdpMid:e.candidate.sdpMid}));
+    }
+  };
+  if(isInitiator){
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    if(ws && ws.readyState===WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'voice_offer', to_user_id:pid, sdp:offer.sdp}));
+    }
+  }
+}
+
+async function handleOffer(pid, sdp){
+  const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+  peerConnections[pid] = pc;
+  localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+  pc.ontrack = (e)=>{
+    const audio = document.createElement('audio');
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    audio.id = 'audio-'+pid;
+    document.body.appendChild(audio);
+  };
+  pc.onicecandidate = (e)=>{
+    if(e.candidate && ws && ws.readyState===WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'voice_ice', to_user_id:pid, candidate:e.candidate.candidate, sdpMLineIndex:e.candidate.sdpMLineIndex, sdpMid:e.candidate.sdpMid}));
+    }
+  };
+  await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp}));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  if(ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'voice_answer', to_user_id:pid, sdp:answer.sdp}));
+  }
+}
+
+async function handleAnswer(pid, sdp){
+  const pc = peerConnections[pid];
+  if(pc) await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp}));
+}
+
+async function handleIce(pid, candidate, sdpMLineIndex, sdpMid){
+  const pc = peerConnections[pid];
+  if(pc && candidate){
+    try{ await pc.addIceCandidate(new RTCIceCandidate({candidate, sdpMLineIndex, sdpMid})); }catch(e){}
+  }
+}
+
+function updateVoiceUI(users){
+  updateVoiceParticipants(users);
+}
+
+function updateVoiceParticipants(users){
+  const el=$('voiceParticipants');
+  if(!el) return;
+  const list = users||[];
+  el.innerHTML = list.map(u=>`<div class="voice-participant" id="vp-${esc(u.user_id)}">
+    <div class="voice-avatar">${esc(u.user_name?u.user_name[0]:'?')}</div>
+    <div style="font-size:0.8rem;">${esc(u.user_name||'')}</div>
+  </div>`).join('');
+}
+
+window.toggleMute = function(){
+  isMuted = !isMuted;
+  if(localStream){
+    localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted);
+  }
+  $('muteBtn').textContent = isMuted ? 'ミュート解除' : 'ミュート';
+};
+
+window.leaveVoice = function(){
+  if(ws){ ws.close(); ws=null; }
+  leaveVoiceCleanup();
+  showChannels();
+};
+
+function leaveVoiceCleanup(){
+  Object.values(peerConnections).forEach(pc=>pc.close());
+  peerConnections={};
+  if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  document.querySelectorAll('audio[id^="audio-"]').forEach(a=>a.remove());
+  activeChannel=null;
+}
+
+// Notebook
+window.showNotebook = function(){ $('notebookSheet').classList.add('active'); loadNotebook(); };
+window.hideNotebook = function(){ $('notebookSheet').classList.remove('active'); };
+window.setTab = function(tab){ currentTab=tab; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab)); renderNotebook(); };
+
+async function loadNotebook(){
+  if(!activeChannel || activeChannel.type!=='text' || !activeServer) return;
+  try{
+    const [notes, tasks, events] = await Promise.all([
+      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes').then(r=>r.json()),
+      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks').then(r=>r.json()),
+      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/events').then(r=>r.json())
+    ]);
+    window._notebook = {notes, tasks, events};
+    renderNotebook();
+  }catch(e){}
+}
+window.loadNotebook = loadNotebook;
+
+function renderNotebook(){
+  const body=$('notebookBody');
+  const data=window._notebook||{notes:[],tasks:[],events:[]};
+  if(currentTab==='notes') renderNotes(data.notes);
+  else if(currentTab==='tasks') renderTasks(data.tasks);
+  else renderEvents(data.events);
+}
+
+function renderNotes(notes){
+  const profile=getProfile();
+  const html=[`<div class="addrow">
+    <input id="noteContent" placeholder="メモを入力…">
+    <select id="noteCategory"><option value="general">一般</option><option value="shopping">買い物</option><option value="appointment">予定</option></select>
+    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addNote()">追加</button>
+    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.summarizeNotes()">要約</button>
+  </div>`];
+  notes.forEach(n=>{
+    html.push(`<div class="list-item" style="${n.is_pinned?'background:#FFF9F3;':''}">
+      <div><div style="font-size:0.95rem;">${esc(n.content)}</div><div class="meta">${categoryLabel(n.category)} · ${esc(n.created_by||'')}</div></div>
+      <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.pinNote('${esc(n.id)}')">${n.is_pinned?'解除':'ピン'}</button>
+    </div>`);
+  });
+  $('notebookBody').innerHTML=html.join('');
+}
+function categoryLabel(c){ return {general:'一般',shopping:'買い物',appointment:'予定',task:'お手伝い'}[c]||c; }
+
+function renderTasks(tasks){
+  const html=[`<div class="addrow">
+    <input id="taskTitle" placeholder="お手伝いを入力…">
+    <input id="taskAssign" placeholder="担当者" style="max-width:120px;">
+    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addTask()">追加</button>
+  </div>`];
+  tasks.forEach(t=>{
+    html.push(`<div class="list-item">
+      <div style="opacity:${t.done?0.6:1};">
+        <div style="text-decoration:${t.done?'line-through':'none'};font-size:0.95rem;">${esc(t.title)}</div>
+        <div class="meta">${t.assignee_name?'担当:'+esc(t.assignee_name)+' · ':''}${t.due_at?new Date(t.due_at).toLocaleString():''}</div>
+      </div>
+      ${t.done?'<span style="color:var(--ok);font-size:0.8rem;">完了</span>':`<button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.doneTask('${esc(t.id)}')">完了</button>`}
+    </div>`);
+  });
+  $('notebookBody').innerHTML=html.join('');
+}
+
+function renderEvents(events){
+  const html=[`<div class="addrow">
+    <input id="eventTitle" placeholder="予定のタイトル…">
+    <input id="eventAt" type="datetime-local">
+    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addEvent()">追加</button>
+  </div>`];
+  events.forEach(ev=>{
+    html.push(`<div class="list-item">
+      <div><div style="font-size:0.95rem;">${esc(ev.title)}</div><div class="meta">${new Date(ev.event_at).toLocaleString()}</div></div>
+    </div>`);
+  });
+  $('notebookBody').innerHTML=html.join('');
+}
+
+window.addNote = async function(){
+  const content=$('noteContent').value.trim(); if(!content||!activeChannel||!activeServer) return;
+  const fd=new FormData(); fd.append('content',content); fd.append('category',$('noteCategory').value); fd.append('created_by',getProfile().name);
+  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes',{method:'POST',body:fd});
+  $('noteContent').value=''; loadNotebook();
+};
+window.pinNote = async function(id){
+  if(!activeChannel||!activeServer) return;
+  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes/'+id+'/pin',{method:'POST'});
+  loadNotebook();
+};
+window.addTask = async function(){
+  const title=$('taskTitle').value.trim(); if(!title||!activeChannel||!activeServer) return;
+  const fd=new FormData(); fd.append('title',title); fd.append('created_by',getProfile().name); fd.append('assignee_name',$('taskAssign').value.trim());
+  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks',{method:'POST',body:fd});
+  $('taskTitle').value=''; $('taskAssign').value=''; loadNotebook();
+};
+window.doneTask = async function(id){
+  if(!activeChannel||!activeServer) return;
+  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks/'+id+'/done',{method:'POST'});
+  loadNotebook();
+};
+window.addEvent = async function(){
+  const title=$('eventTitle').value.trim(); const at=$('eventAt').value;
+  if(!title||!at||!activeChannel||!activeServer) return;
+  const fd=new FormData(); fd.append('title',title); fd.append('event_at',new Date(at).toISOString()); fd.append('created_by',getProfile().name);
+  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/events',{method:'POST',body:fd});
+  $('eventTitle').value=''; $('eventAt').value=''; loadNotebook();
+};
+
+window.summarizeNotes = async function(){
+  if(!activeServer || !activeChannel) return;
+  const notes = window._notebook?.notes || [];
+  const context = notes.map(n=>n.content).join('\n');
+  if(!context) return alert('メモがありません');
+  try{
+    const fd = new FormData(); fd.append('context', context);
+    const res = await fetch(API()+serverPath()+'/summarize', {method:'POST', body:fd});
+    const data = await res.json();
+    if(data.summary) alert('要約:\n' + data.summary);
+    else alert('要約できませんでした');
+  } catch { alert('要約に失敗しました'); }
+};
+
+// Profile
+window.showProfile = function(){
+  const p=getProfile();
+  $('profileName').value = p.name;
+  $('profileQuick').value = p.quick;
+  $('profileTts').checked = p.tts;
+  $('profileQuiet').checked = p.quiet;
+  $('profileSpeaker').value = String(p.speaker);
+  $('profileVrmName').textContent = p.vrmUrl ? p.vrmUrl.split('/').pop() : 'デフォルト';
+  $('profileModal').classList.add('active');
+};
+window.hideProfile = function(){ $('profileModal').classList.remove('active'); };
+
+window.onProfileVrmSelected = async function(e){
+  const file=e.target.files[0]; if(!file) return;
+  const p=getProfile();
+  try{
+    const fd=new FormData(); fd.append('file',file);
+    const res=await (await fetch(API()+'/upload/avatar',{method:'POST',body:fd})).json();
+    if(res.url){ p.vrmUrl=API()+res.url; setProfile(p); loadVrm(p.vrmUrl); $('profileVrmName').textContent=file.name; }
+  }catch(err){ console.error('avatar upload failed',err); }
+};
+
+window.saveProfile = function(){
+  const p=getProfile();
+  p.name=$('profileName').value.trim()||'Webユーザー';
+  p.quick=$('profileQuick').value;
+  p.tts=!!$('profileTts').checked;
+  p.quiet=!!$('profileQuiet').checked;
+  p.speaker=parseInt($('profileSpeaker').value,10);
+  setProfile(p);
+  loadQuickPhrases();
+  hideProfile();
+};
+
+function loadQuickPhrases(){
+  const p=getProfile();
+  const phrases=p.quick.split(',').map(s=>s.trim()).filter(Boolean);
+  const chips=$('quickChips'); chips.innerHTML='';
+  phrases.forEach(text=>{
+    const b=document.createElement('button'); b.textContent=text;
+    b.onclick=()=>{ $('messageInput').value=text; window.sendMessage(); };
+    chips.appendChild(b);
+  });
+}
+
+// Server Settings
+window.showServerSettings = async function(){
+  if(!activeServer) return;
+  try{
+    const s = await (await fetch(API()+serverPath())).json();
+    const bots = await (await fetch(API()+serverPath()+'/bots')).json();
+    const kb = await (await fetch(API()+serverPath()+'/knowledge')).json();
+    $('serverSettingsBody').innerHTML = `
+      <div class="setting-row"><label>サーバー名</label><div>${esc(s.name)}</div></div>
+      <div class="setting-row"><label>歓迎メッセージ</label><div>${esc(s.welcome_message||'なし')}</div></div>
+      <div class="setting-row"><label>AIボット (${bots.length})</label>
+        ${bots.map(b=>`<div style="margin-top:4px;font-size:0.9rem;">${esc(b.name)} · ${esc(b.personality||'やさしい')}</div>`).join('')}
+      </div>
+      <div class="setting-row"><label>知識ベース (${kb.length})</label>
+        ${kb.map(k=>`<div style="margin-top:4px;font-size:0.9rem;">${esc(k.title)}</div>`).join('')}
+      </div>
+    `;
+    $('serverSettingsModal').classList.add('active');
+  }catch(e){}
+};
+window.hideServerSettings = function(){ $('serverSettingsModal').classList.remove('active'); };
+
+// Init
+const p=getProfile();
+loadVrm(p.vrmUrl);
+</script>
+</body>
+</html>

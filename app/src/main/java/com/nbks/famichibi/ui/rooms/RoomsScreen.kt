@@ -5,16 +5,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.nbks.famichibi.data.PreferencesRepository
+import com.nbks.famichibi.data.ServerConfig
 import com.nbks.famichibi.network.ChatWebSocket
 import com.nbks.famichibi.network.DiscoveredServer
 import com.nbks.famichibi.network.LanDiscovery
@@ -49,10 +50,11 @@ fun RoomsScreen(
     prefs: PreferencesRepository,
     snackbarHostState: SnackbarHostState
 ) {
-    val context = LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
 
     var serverUrl by remember { mutableStateOf("http://10.0.2.2:8000") }
+    var serverId by remember { mutableStateOf("default") }
     var userName by remember { mutableStateOf("お兄ちゃん") }
     var userId by remember { mutableStateOf("") }
     var rooms by remember { mutableStateOf(listOf<RoomInfo>()) }
@@ -61,6 +63,8 @@ fun RoomsScreen(
     var showJoin by remember { mutableStateOf(false) }
     var selectedRoom by remember { mutableStateOf<RoomInfo?>(null) }
     var joinPassword by remember { mutableStateOf("") }
+    var serverConfigs by remember { mutableStateOf(listOf<ServerConfig>()) }
+    var showServerPicker by remember { mutableStateOf(false) }
 
     val lanDiscovery = remember { LanDiscovery() }
     var discoveredServers by remember { mutableStateOf(listOf<DiscoveredServer>()) }
@@ -72,20 +76,10 @@ fun RoomsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        serverUrl = prefs.serverUrl.first()
-        userName = prefs.userName.first()
-        userId = prefs.userId.first().ifEmpty { UUID.randomUUID().toString().also { prefs.setUserId(it) } }
-    }
-
-    LaunchedEffect(Unit) {
-        lanDiscovery.servers.collect { discoveredServers = it }
-    }
-
     suspend fun fetchRooms() {
         isLoading = true
         try {
-            val response = httpClient.get("$serverUrl/rooms")
+            val response = httpClient.get("$serverUrl/s/$serverId/rooms")
             if (response.status == HttpStatusCode.OK) {
                 rooms = Json.decodeFromString(response.bodyAsText())
             }
@@ -99,14 +93,14 @@ fun RoomsScreen(
     suspend fun createRoom(name: String, password: String) {
         try {
             val response = httpClient.submitForm(
-                url = "$serverUrl/rooms",
+                url = "$serverUrl/s/$serverId/rooms",
                 formParameters = Parameters.build { append("name", name); append("password", password) }
             )
             if (response.status == HttpStatusCode.OK) {
                 val body = Json.decodeFromString<Map<String, String>>(response.bodyAsText())
                 val rid = body["room_id"] ?: return
                 prefs.setRoomId(rid)
-                ChatWebSocket.connect(serverUrl, rid, userId, userName, password)
+                ChatWebSocket.connect(serverUrl, serverId, rid, userId, userName, password)
                 navController.navigate("chat") { popUpTo("home") { inclusive = false } }
                 snackbarHostState.showSnackbar("部屋を作成しました")
                 fetchRooms()
@@ -119,7 +113,7 @@ fun RoomsScreen(
     suspend fun joinRoom(room: RoomInfo, password: String) {
         try {
             val response = httpClient.submitForm(
-                url = "$serverUrl/rooms/${room.id}/join",
+                url = "$serverUrl/s/$serverId/rooms/${room.id}/join",
                 formParameters = Parameters.build {
                     append("user_id", userId)
                     append("user_name", userName)
@@ -128,7 +122,7 @@ fun RoomsScreen(
             )
             if (response.status == HttpStatusCode.OK) {
                 prefs.setRoomId(room.id)
-                ChatWebSocket.connect(serverUrl, room.id, userId, userName, password)
+                ChatWebSocket.connect(serverUrl, serverId, room.id, userId, userName, password)
                 navController.navigate("chat") { popUpTo("home") { inclusive = false } }
                 snackbarHostState.showSnackbar("${room.name}に参加しました")
             } else {
@@ -137,6 +131,24 @@ fun RoomsScreen(
         } catch (e: Exception) {
             snackbarHostState.showSnackbar("参加に失敗しました")
         }
+    }
+
+    LaunchedEffect(Unit) {
+        serverUrl = prefs.serverUrl.first()
+        serverId = prefs.activeServerId.first()
+        userName = prefs.userName.first()
+        userId = prefs.userId.first().ifEmpty { UUID.randomUUID().toString().also { prefs.setUserId(it) } }
+        val stored = prefs.servers.first()
+        serverConfigs = if (stored.isEmpty()) {
+            val default = listOf(ServerConfig("default", "Default", serverUrl, ""))
+            prefs.setServers(default)
+            default
+        } else stored
+        fetchRooms()
+    }
+
+    LaunchedEffect(Unit) {
+        lanDiscovery.servers.collect { discoveredServers = it }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -173,8 +185,24 @@ fun RoomsScreen(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("検索")
                 }
-                Button(onClick = { showCreate = true }) { Text("＋ 作成") }
+                Button(onClick = { showCreate = true }) { Text("作成") }
             }
+        }
+
+        // Server selector
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = serverConfigs.find { it.id == serverId }?.name ?: serverId,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = { showServerPicker = true }) { Text("サーバー切替") }
         }
 
         AnimatedVisibility(visible = discoveredServers.isNotEmpty()) {
@@ -270,6 +298,40 @@ fun RoomsScreen(
             dismissButton = { TextButton(onClick = { showJoin = false }) { Text("キャンセル") } }
         )
     }
+
+    if (showServerPicker) {
+        AlertDialog(
+            onDismissRequest = { showServerPicker = false },
+            title = { Text("サーバー選択") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    serverConfigs.forEach { s ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(s.name, style = MaterialTheme.typography.bodyLarge)
+                            RadioButton(
+                                selected = serverId == s.id,
+                                onClick = {
+                                    serverId = s.id
+                                    serverUrl = s.url
+                                    scope.launch {
+                                        prefs.setActiveServerId(s.id)
+                                        prefs.setServerUrl(s.url)
+                                        fetchRooms()
+                                    }
+                                    showServerPicker = false
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showServerPicker = false }) { Text("閉じる") } }
+        )
+    }
 }
 
 @Composable
@@ -289,7 +351,8 @@ private fun RoomRow(room: RoomInfo, onClick: () -> Unit) {
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (room.has_password) {
-                    Text("🔒", style = MaterialTheme.typography.bodySmall)
+                    Icon(Icons.Default.Lock, contentDescription = "鍵付き", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("鍵付き", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onClick) { Text("参加") }
             }

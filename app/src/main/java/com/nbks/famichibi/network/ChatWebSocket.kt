@@ -57,15 +57,18 @@ object ChatWebSocket {
 
     var currentRoomId: String = ""
         private set
+    var currentServerId: String = "default"
+        private set
 
-    fun connect(serverUrl: String, roomId: String, userId: String, userName: String, password: String = "") {
+    fun connect(serverUrl: String, serverId: String, roomId: String, userId: String, userName: String, password: String = "") {
         disconnect()
         currentRoomId = roomId
+        currentServerId = serverId
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
                 try {
                     val wsUrl = serverUrl.replace("http://", "ws://").replace("https://", "wss://")
-                    client.webSocket("$wsUrl/ws/$roomId") {
+                    client.webSocket("$wsUrl/ws/$serverId/$roomId") {
                         session = this
                         _connectionState.value = true
 

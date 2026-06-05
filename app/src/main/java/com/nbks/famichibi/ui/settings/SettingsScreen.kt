@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nbks.famichibi.data.PreferencesRepository
+import com.nbks.famichibi.data.ServerConfig
 import com.nbks.famichibi.network.DiscoveredServer
 import com.nbks.famichibi.network.LanDiscovery
 import com.nbks.famichibi.vrm.AssetVrmScanner
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +54,13 @@ fun SettingsScreen(
     var myVrmPath by remember { mutableStateOf("") }
     var selectedAssetVrm by remember { mutableStateOf("") }
     var assetVrms by remember { mutableStateOf(listOf<String>()) }
+    var speaker by remember { mutableIntStateOf(58) }
+    var aiEnabled by remember { mutableStateOf(false) }
+    var serverConfigs by remember { mutableStateOf(listOf<ServerConfig>()) }
+    var showAddServer by remember { mutableStateOf(false) }
+    var newServerName by remember { mutableStateOf("") }
+    var newServerUrl by remember { mutableStateOf("") }
+    var newServerPassword by remember { mutableStateOf("") }
 
     val lanDiscovery = remember { LanDiscovery() }
     var discoveredServers by remember { mutableStateOf(listOf<DiscoveredServer>()) }
@@ -71,6 +80,13 @@ fun SettingsScreen(
         myVrmPath = prefs.myVrmPath.first()
         selectedAssetVrm = prefs.selectedAssetVrm.first()
         assetVrms = AssetVrmScanner.listAssetVrms(context)
+        speaker = prefs.voicevoxSpeaker.first()
+        aiEnabled = prefs.aiEnabled.first()
+        serverConfigs = prefs.servers.first().ifEmpty {
+            val default = listOf(ServerConfig("default", "Default", serverUrl, ""))
+            prefs.setServers(default)
+            default
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -98,6 +114,9 @@ fun SettingsScreen(
         prefs.setQuietEnabled(quietEnabled)
         prefs.setTtsEnabled(ttsEnabled)
         prefs.setVoiceInputEnabled(voiceEnabled)
+        prefs.setVoicevoxSpeaker(speaker)
+        prefs.setAiEnabled(aiEnabled)
+        prefs.setServers(serverConfigs)
     }
 
     Column(
@@ -112,6 +131,28 @@ fun SettingsScreen(
 
         // Server
         SettingSection(title = "サーバー接続") {
+            serverConfigs.forEach { s ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(s.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Text(s.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(
+                        onClick = {
+                            serverUrl = s.url
+                            scope.launch { prefs.setActiveServerId(s.id); prefs.setServerUrl(s.url); snackbarHostState.showSnackbar("${s.name}を選択しました") }
+                        }
+                    ) { Text(if (serverUrl == s.url) "選択中" else "選択") }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = { showAddServer = true }) { Text("サーバーを追加") }
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it }, label = { Text("サーバーURL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -211,7 +252,7 @@ fun SettingsScreen(
             OutlinedTextField(value = quickPhrases, onValueChange = { quickPhrases = it }, label = { Text("カンマ区切り") }, modifier = Modifier.fillMaxWidth())
         }
 
-        // Quiet hours + TTS
+        // Voice
         SettingSection(title = "音声とおやすみ") {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text("アバター音声（TTS）", style = MaterialTheme.typography.bodyMedium)
@@ -222,12 +263,35 @@ fun SettingsScreen(
                 Switch(checked = voiceEnabled, onCheckedChange = { voiceEnabled = it })
             }
             Spacer(modifier = Modifier.height(8.dp))
+            Text("VOICEVOX 話者", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(4.dp))
+            var expanded by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(speakerLabel(speaker))
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    listOf(58 to "58: 猫使ビィ", 3 to "3: ずんだもん", 2 to "2: 四国めたん", 8 to "8: 春日部つむぎ", 10 to "10: 雨晴はう", 14 to "14: 冥鳴ひまり").forEach { (id, label) ->
+                    DropdownMenuItem(text = { Text(label) }, onClick = { speaker = id; expanded = false })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Text("おやすみ時間", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(value = quietStart.toString(), onValueChange = { quietStart = it.toIntOrNull() ?: 0 }, label = { Text("開始") }, modifier = Modifier.weight(1f), singleLine = true)
                 Text("〜")
                 OutlinedTextField(value = quietEnd.toString(), onValueChange = { quietEnd = it.toIntOrNull() ?: 7 }, label = { Text("終了") }, modifier = Modifier.weight(1f), singleLine = true)
             }
+        }
+
+        // AI
+        SettingSection(title = "AIアシスタント") {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("Ollama AIを有効にする", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = aiEnabled, onCheckedChange = { aiEnabled = it })
+            }
+            Text("サーバー側でOllamaを設定すると、AIアバターが家族ノートの要約や雑談に参加します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -237,6 +301,51 @@ fun SettingsScreen(
         ) { Text("すべて保存") }
         Spacer(modifier = Modifier.height(32.dp))
     }
+
+    if (showAddServer) {
+        AlertDialog(
+            onDismissRequest = { showAddServer = false },
+            title = { Text("サーバーを追加") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = newServerName, onValueChange = { newServerName = it }, label = { Text("名前") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = newServerUrl, onValueChange = { newServerUrl = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = newServerPassword, onValueChange = { newServerPassword = it }, label = { Text("パスワード（任意）") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newServerName.isNotBlank() && newServerUrl.isNotBlank()) {
+                            val newList = serverConfigs + ServerConfig(
+                                id = UUID.randomUUID().toString(),
+                                name = newServerName,
+                                url = newServerUrl,
+                                password = newServerPassword
+                            )
+                            serverConfigs = newList
+                            scope.launch { prefs.setServers(newList) }
+                            newServerName = ""
+                            newServerUrl = ""
+                            newServerPassword = ""
+                            showAddServer = false
+                        }
+                    }
+                ) { Text("追加") }
+            },
+            dismissButton = { TextButton(onClick = { showAddServer = false }) { Text("キャンセル") } }
+        )
+    }
+}
+
+private fun speakerLabel(id: Int): String = when (id) {
+    58 -> "58: 猫使ビィ"
+    3 -> "3: ずんだもん"
+    2 -> "2: 四国めたん"
+    8 -> "8: 春日部つむぎ"
+    10 -> "10: 雨晴はう"
+    14 -> "14: 冥鳴ひまり"
+    else -> "$id: その他"
 }
 
 @Composable

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FamiChibi Admin</title>
+<style>
+  :root { --bg:#F7F5F2; --surface:#fff; --divider:#D4CFC8; --text:#1A1A1A; --text2:#6B6660; --accent:#C45C3E; --accent-text:#fff; --danger:#B5423F; --ok:#3E7C5C; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); }
+  .appbar { background:var(--surface); border-bottom:1px solid var(--divider); padding:12px 16px; display:flex; align-items:center; justify-content:space-between; }
+  .appbar h1 { font-size:1.1rem; font-weight:600; }
+  .container { max-width:960px; margin:0 auto; padding:16px; }
+  .card { background:var(--surface); border:1px solid var(--divider); margin-bottom:12px; padding:16px; }
+  .card h2 { font-size:1rem; margin-bottom:8px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  input, select, textarea, button { font-family:inherit; font-size:1rem; padding:10px; border:1px solid var(--divider); background:var(--bg); }
+  button { cursor:pointer; background:var(--accent); color:var(--accent-text); border:none; }
+  button.secondary { background:var(--surface); color:var(--text); border:1px solid var(--divider); }
+  button.danger { background:var(--danger); color:#fff; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th, td { text-align:left; padding:10px; border-bottom:1px solid var(--divider); font-size:0.9rem; }
+  th { color:var(--text2); font-weight:500; }
+  .small { font-size:0.85rem; color:var(--text2); }
+  .mt { margin-top:12px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="appbar">
+  <h1>FamiChibi 管理パネル</h1>
+  <span class="small">ローカルネットワーク専用</span>
+</div>
+<div class="container">
+  <div class="card">
+    <h2>サーバー一覧</h2>
+    <div id="serverList"><p class="small">読み込み中...</p></div>
+    <div class="mt">
+      <h3>新規サーバー作成</h3>
+      <div class="row">
+        <input id="newServerName" placeholder="サーバー名">
+        <input id="newServerPassword" placeholder="参加パスワード（空欄で公開）" type="password">
+        <button onclick="createServer()">作成</button>
+      </div>
+    </div>
+  </div>
+  <div class="card hidden" id="configCard">
+    <h2>サーバー設定: <span id="configServerName"></span></h2>
+    <input type="hidden" id="configServerId">
+    <div class="row"><label>名前</label><input id="cfgName" placeholder="名前"></div>
+    <div class="row"><label>参加パスワード</label><input id="cfgPassword" placeholder="パスワード"></div>
+    <div class="row"><label>Ollama URL</label><input id="cfgOllamaUrl" placeholder="http://localhost:11434"></div>
+    <div class="row"><label>Ollama モデル</label><input id="cfgOllamaModel" placeholder="llama3"></div>
+    <div class="row"><label>VOICEVOX 話者ID</label><input id="cfgSpeaker" type="number" placeholder="0"></div>
+    <div class="row">
+      <button onclick="saveConfig()">保存</button>
+      <button class="secondary" onclick="hideConfig()">閉じる</button>
+      <button class="danger" onclick="deleteServer()">削除</button>
+    </div>
+    <div class="mt">
+      <h3>部屋一覧</h3>
+      <div id="roomList"></div>
+    </div>
+  </div>
+</div>
+<script>
+const API = location.origin;
+const params = new URLSearchParams(location.search);
+const token = params.get('token') || '';
+
+function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+
+async function api(path, opts={}){
+  const url = API + path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token);
+  const res = await fetch(url, opts);
+  if(res.status===403){ alert('アクセスが拒否されました。tokenとローカルネットワークを確認してください。'); }
+  return res;
+}
+
+async function loadServers(){
+  const res = await api('/admin/api/servers');
+  const list = res.ok ? await res.json() : [];
+  const el = document.getElementById('serverList');
+  if(!list.length){ el.innerHTML='<p class="small">サーバーがありません</p>'; return; }
+  let html='<table><thead><tr><th>ID</th><th>名前</th><th>部屋数</th><th>パスワード</th><th>Ollama</th><th>操作</th></tr></thead><tbody>';
+  list.forEach(s=>{
+    html+=`<tr>
+      <td>${esc(s.id)}</td>
+      <td>${esc(s.name)}</td>
+      <td>${s.room_count}</td>
+      <td>${s.has_password?'あり':'なし'}</td>
+      <td class="small">${esc(s.ollama_url||'-')}</td>
+      <td><button onclick="showConfig('${esc(s.id)}')">設定</button></td>
+    </tr>`;
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+async function createServer(){
+  const name = document.getElementById('newServerName').value.trim();
+  if(!name) return alert('名前を入力してください');
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('password', document.getElementById('newServerPassword').value);
+  await api('/admin/api/servers', {method:'POST', body:fd});
+  document.getElementById('newServerName').value='';
+  document.getElementById('newServerPassword').value='';
+  loadServers();
+}
+
+async function showConfig(sid){
+  const res = await api('/admin/api/servers');
+  const list = res.ok ? await res.json() : [];
+  const s = list.find(x=>x.id===sid);
+  if(!s) return;
+  document.getElementById('configServerId').value=s.id;
+  document.getElementById('configServerName').textContent=s.name;
+  document.getElementById('cfgName').value=s.name;
+  document.getElementById('cfgPassword').value='';
+  document.getElementById('cfgOllamaUrl').value=s.ollama_url||'';
+  document.getElementById('cfgOllamaModel').value=s.ollama_model||'';
+  document.getElementById('cfgSpeaker').value=s.voicevox_speaker||0;
+  document.getElementById('configCard').classList.remove('hidden');
+  loadRooms(sid);
+}
+
+function hideConfig(){
+  document.getElementById('configCard').classList.add('hidden');
+}
+
+async function saveConfig(){
+  const sid = document.getElementById('configServerId').value;
+  const fd = new FormData();
+  fd.append('name', document.getElementById('cfgName').value);
+  fd.append('password', document.getElementById('cfgPassword').value);
+  fd.append('ollama_url', document.getElementById('cfgOllamaUrl').value);
+  fd.append('ollama_model', document.getElementById('cfgOllamaModel').value);
+  fd.append('voicevox_speaker', document.getElementById('cfgSpeaker').value);
+  await api('/admin/api/servers/'+sid+'/config', {method:'POST', body:fd});
+  alert('保存しました');
+  loadServers();
+}
+
+async function deleteServer(){
+  const sid = document.getElementById('configServerId').value;
+  if(!confirm('本当に削除しますか？')) return;
+  await api('/admin/api/servers/'+sid, {method:'DELETE'});
+  hideConfig();
+  loadServers();
+}
+
+async function loadRooms(sid){
+  const res = await api('/admin/api/servers/'+sid+'/rooms');
+  const rooms = res.ok ? await res.json() : [];
+  const el = document.getElementById('roomList');
+  if(!rooms.length){ el.innerHTML='<p class="small">部屋がありません</p>'; return; }
+  let html='<table><thead><tr><th>ID</th><th>名前</th><th>在室数</th><th>パスワード</th></tr></thead><tbody>';
+  rooms.forEach(r=>{
+    html+=`<tr><td>${esc(r.id)}</td><td>${esc(r.name)}</td><td>${r.user_count}</td><td>${r.has_password?'あり':'なし'}</td></tr>`;
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+loadServers();
+</script>
+</body>
+</html>
