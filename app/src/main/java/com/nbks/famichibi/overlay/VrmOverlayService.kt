@@ -29,6 +29,7 @@ import com.nbks.famichibi.R
 import com.nbks.famichibi.data.PreferencesRepository
 import com.nbks.famichibi.network.ChatEvent
 import com.nbks.famichibi.network.ChatWebSocket
+import com.nbks.famichibi.util.formatName
 import com.nbks.famichibi.vrm.AssetVrmScanner
 import com.nbks.famichibi.vrm.GltfParser
 import com.nbks.famichibi.vrm.VrmGlRenderer
@@ -126,8 +127,10 @@ class VrmOverlayService : Service() {
                 val results = RemoteInput.getResultsFromIntent(intent)
                 val message = results?.getCharSequence(EXTRA_CHAT_REPLY)?.toString()
                 if (!message.isNullOrBlank()) {
-                    val sender = runBlocking { prefs.userName.first() }
-                    ChatWebSocket.sendMessage(sender, message)
+                    val memberships = runBlocking { prefs.serverMemberships.first() }
+                    val membership = memberships.lastOrNull()
+                    val uid = runBlocking { prefs.userId.first().ifEmpty { java.util.UUID.randomUUID().toString().also { prefs.setUserId(it) } } }
+                    ChatWebSocket.sendMessage(membership?.nickname ?: "", uid, message)
                 }
             }
         }
@@ -436,14 +439,19 @@ class VrmOverlayService : Service() {
 
         serviceScope.launch {
             try {
-                val serverUrl = prefs.serverUrl.first()
-                val roomId = prefs.roomId.first()
+                val memberships = prefs.serverMemberships.first()
+                val membership = memberships.lastOrNull()
+                val hosts = prefs.hosts.first()
+                val host = hosts.find { it.id == membership?.hostId }
+                val serverUrl = host?.url ?: ""
+                val serverId = membership?.serverId ?: ""
+                val roomId = prefs.activeChannelId.first()
                 val uid = prefs.userId.first().ifEmpty { java.util.UUID.randomUUID().toString().also { prefs.setUserId(it) } }
                 myUserId = uid
-                val userName = prefs.userName.first()
-                Log.d(TAG, "Connecting WebSocket: userId=$uid, roomId=$roomId")
-                if (roomId.isNotEmpty()) {
-                    ChatWebSocket.connect(serverUrl, roomId, uid, userName, "")
+                val userName = membership?.nickname ?: ""
+                Log.d(TAG, "Connecting WebSocket: userId=$uid, serverId=$serverId, roomId=$roomId")
+                if (serverUrl.isNotEmpty() && serverId.isNotEmpty() && roomId.isNotEmpty()) {
+                    ChatWebSocket.connect(serverUrl, serverId, roomId, uid, userName, "")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "WebSocket connect failed", e)
@@ -497,7 +505,7 @@ class VrmOverlayService : Service() {
             is ChatEvent.Nudge -> {
                 serviceScope.launch(Dispatchers.Main) {
                     val bubble = overlayView?.findViewById<TextView>(R.id.speechBubble)
-                    bubble?.let { showBubbleOn(it, "システム", "${event.fromUserName}さんがあなたを呼んでいます") }
+                    bubble?.let { showBubbleOn(it, "システム", "${formatName(event.fromUserName)}があなたを呼んでいます") }
                     renderer?.let { r ->
                         r.animationState = VrmGlRenderer.AnimationState.DIZZY
                         r.dizzyRemaining = 1.5f
@@ -508,7 +516,7 @@ class VrmOverlayService : Service() {
                 serviceScope.launch(Dispatchers.Main) {
                     val bubble = participants.values.firstOrNull()?.speechBubble
                         ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
-                    bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが参加しました") }
+                    bubble?.let { showBubbleOn(it, "システム", "${formatName(event.userName)}が参加しました") }
                     if (event.userId != myUserId && !participants.containsKey(event.userId)) {
                         addParticipant(event.userId, event.userName)
                     }
@@ -518,7 +526,7 @@ class VrmOverlayService : Service() {
                 serviceScope.launch(Dispatchers.Main) {
                     val bubble = participants.values.firstOrNull()?.speechBubble
                         ?: overlayView?.findViewById<TextView>(R.id.speechBubble)
-                    bubble?.let { showBubbleOn(it, "システム", "${event.userName}さんが退出しました") }
+                    bubble?.let { showBubbleOn(it, "システム", "${formatName(event.userName)}が退出しました") }
                     removeParticipant(event.userId)
                 }
             }
@@ -538,6 +546,9 @@ class VrmOverlayService : Service() {
             }
             is ChatEvent.Reaction -> {
                 // no overlay action needed
+            }
+            else -> {
+                // VoiceSignal, VoiceUserJoined, VoiceUserLeft - not handled in overlay
             }
         }
     }

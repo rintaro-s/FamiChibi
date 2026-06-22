@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -21,27 +20,27 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.nbks.famichibi.data.PreferencesRepository
-import com.nbks.famichibi.ui.chat.ChatScreen
+import com.nbks.famichibi.ui.channels.ChannelScreen
 import com.nbks.famichibi.ui.home.HomeScreen
 import com.nbks.famichibi.ui.notebook.NotebookScreen
-import com.nbks.famichibi.ui.rooms.RoomsScreen
+import com.nbks.famichibi.ui.server.ServerScreen
 import com.nbks.famichibi.ui.settings.SettingsScreen
 import com.nbks.famichibi.ui.theme.FamiChibiTheme
+import com.nbks.famichibi.ui.voice.VoiceChannelScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         val prefs = PreferencesRepository(applicationContext)
-
         setContent {
             FamiChibiTheme {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
+                val showBottomBar = currentRoute in listOf("home", "settings")
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -49,11 +48,7 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         CenterAlignedTopAppBar(
                             title = {
-                                Text(
-                                    "FamiChibi",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Text("FamiChibi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                             },
                             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
@@ -62,40 +57,21 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 0.dp
-                        ) {
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                                label = { Text("ホーム") },
-                                selected = currentRoute == "home",
-                                onClick = { navController.navigate("home") { popUpTo("home") { inclusive = true } } }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Videocam, contentDescription = null) },
-                                label = { Text("部屋") },
-                                selected = currentRoute == "rooms",
-                                onClick = { navController.navigate("rooms") }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null) },
-                                label = { Text("チャット") },
-                                selected = currentRoute == "chat",
-                                onClick = { navController.navigate("chat") }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Book, contentDescription = null) },
-                                label = { Text("ノート") },
-                                selected = currentRoute == "notebook",
-                                onClick = { navController.navigate("notebook") }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                label = { Text("設定") },
-                                selected = currentRoute == "settings",
-                                onClick = { navController.navigate("settings") }
-                            )
+                        if (showBottomBar) {
+                            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                                    label = { Text("ホーム") },
+                                    selected = currentRoute == "home",
+                                    onClick = { navController.navigate("home") { popUpTo("home") { inclusive = true } } }
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                    label = { Text("設定") },
+                                    selected = currentRoute == "settings",
+                                    onClick = { navController.navigate("settings") }
+                                )
+                            }
                         }
                     }
                 ) { innerPadding ->
@@ -103,36 +79,17 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         startDestination = "home",
                         modifier = Modifier.padding(innerPadding),
-                        enterTransition = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Start,
-                                animationSpec = tween(220)
-                            )
-                        },
-                        exitTransition = {
-                            slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Start,
-                                animationSpec = tween(220)
-                            )
-                        },
-                        popEnterTransition = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.End,
-                                animationSpec = tween(220)
-                            )
-                        },
-                        popExitTransition = {
-                            slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.End,
-                                animationSpec = tween(220)
-                            )
-                        }
+                        enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(220)) },
+                        exitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(220)) },
+                        popEnterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(220)) },
+                        popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(220)) }
                     ) {
                         composable("home") { HomeScreen(navController, prefs, snackbarHostState) }
-                        composable("rooms") { RoomsScreen(navController, prefs, snackbarHostState) }
-                        composable("chat") { ChatScreen(prefs, snackbarHostState) }
-                        composable("notebook") { NotebookScreen(prefs, snackbarHostState) }
-                        composable("settings") { SettingsScreen(prefs, snackbarHostState) }
+                        composable("server") { ServerScreen(navController, prefs, snackbarHostState) }
+                        composable("channel") { ChannelScreen(navController, prefs, snackbarHostState) }
+                        composable("voice") { VoiceChannelScreen(navController, prefs, snackbarHostState) }
+                        composable("notebook") { NotebookScreen(navController, prefs, snackbarHostState) }
+                        composable("settings") { SettingsScreen(navController, prefs, snackbarHostState) }
                     }
                 }
             }

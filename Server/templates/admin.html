@@ -71,8 +71,9 @@ const token = params.get('token') || '';
 function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 
 async function api(path, opts={}){
-  const url = API + path + (path.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token);
-  const res = await fetch(url, opts);
+  opts.headers = opts.headers || {};
+  opts.headers['x-admin-token'] = token;
+  const res = await fetch(API + path, opts);
   if(res.status===403){ alert('アクセスが拒否されました。tokenとローカルネットワークを確認してください。'); }
   return res;
 }
@@ -133,7 +134,9 @@ async function saveConfig(){
   const sid = document.getElementById('configServerId').value;
   const fd = new FormData();
   fd.append('name', document.getElementById('cfgName').value);
-  fd.append('password', document.getElementById('cfgPassword').value);
+  const pw = document.getElementById('cfgPassword').value;
+  if(pw) fd.append('password', pw);
+  else fd.append('password', '__NOCHANGE__');
   fd.append('ollama_url', document.getElementById('cfgOllamaUrl').value);
   fd.append('ollama_model', document.getElementById('cfgOllamaModel').value);
   fd.append('voicevox_speaker', document.getElementById('cfgSpeaker').value);

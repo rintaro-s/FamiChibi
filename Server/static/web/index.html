@@ -527,9 +527,9 @@ window.createServer = async function(){
   if(!name) return alert('名前を入力してください');
   const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value);
   try{
-    const res=await (await fetch(API()+'/s/default/servers',{method:'POST',body:fd})).json();
+    const res=await (await fetch(API()+'/servers',{method:'POST',body:fd})).json();
     if(res.error) return alert(res.error);
-    activeServer={id:res.id||res.server_id||'default'};
+    activeServer={id:res.id};
     showChannels();
   }catch(e){ alert('作成に失敗しました'); }
 };

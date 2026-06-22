@@ -586,6 +586,14 @@ async def list_servers():
         for sid, s in servers.items()
     ]
 
+@app.post("/servers")
+async def create_new_server(name: str = Form(...), password: Optional[str] = Form("")):
+    sid = "srv_" + secrets.token_hex(4)
+    servers[sid] = make_default_server(sid, name)
+    servers[sid]["password"] = password
+    await save_state()
+    return {"id": sid, "name": name}
+
 # ---------------------------------------------------------------------------
 # Connection manager (scoped by server_id + room_id)
 # ---------------------------------------------------------------------------
