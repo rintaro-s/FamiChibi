@@ -150,6 +150,10 @@ fun ChannelScreen(
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1) }
 
     LaunchedEffect(Unit) {
+        ChatWebSocket.connectionState.collect { connected = it }
+    }
+
+    LaunchedEffect(Unit) {
         ChatWebSocket.events.collect { event ->
             when (event) {
                 is ChatEvent.Message -> {
@@ -231,7 +235,7 @@ fun ChannelScreen(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp).imePadding(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {

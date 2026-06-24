@@ -59,10 +59,11 @@
   .msg.agent .msg-body { background:transparent; border:none; padding-left:0; }
   .sys { text-align:center; font-size:0.75rem; color:var(--text-secondary); padding:6px 16px; }
 
-  .inputbar { border-top:1px solid var(--divider); background:var(--surface); padding:8px 12px; flex-shrink:0; }
+  .inputbar { border-top:1px solid var(--divider); background:var(--surface); padding:8px 12px calc(8px + env(safe-area-inset-bottom)); flex-shrink:0; }
   .quick-chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; }
   .quick-chips button { flex-shrink:0; padding:6px 10px; font-size:0.85rem; background:var(--bg); border:1px solid var(--divider); color:var(--text); }
   .inputrow { display:flex; gap:8px; align-items:center; }
+  .inputrow input { flex:1; padding:12px; font-size:16px; -webkit-tap-highlight-color:transparent; }
   .inputrow input { flex:1; padding:12px; border:1px solid var(--divider); background:var(--bg); font-size:1rem; outline:none; }
   .inputrow input:focus { border-color:var(--accent); }
 
@@ -100,6 +101,11 @@
   .bottomnav { display:flex; border-top:1px solid var(--divider); background:var(--surface); flex-shrink:0; }
   .bottomnav button { flex:1; padding:12px; font-size:0.85rem; color:var(--text-secondary); background:none; border-bottom:2px solid transparent; }
   .bottomnav button.active { color:var(--accent); border-color:var(--accent); font-weight:600; }
+
+  @media (max-width: 480px) {
+    .modal .panel { left:0; right:0; top:0; bottom:0; transform:none; max-height:100vh; padding:12px; border-radius:0; }
+    .modal.active .panel { transform:none; }
+  }
 
   @media (prefers-color-scheme: dark) {
     :root { --bg:#121212; --surface:#1E1E1E; --surface-2:#2A2A2A; --divider:#3A3A3A; --text:#F2F2F2; --text-secondary:#A8A29E; }
@@ -176,6 +182,7 @@
     <div class="content" style="padding:16px;">
       <input id="newServerName" class="field" placeholder="サーバー名">
       <input id="newServerPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.9rem;"><input type="checkbox" id="newServerInviteOnly"> 招待のみで参加可能にする</label>
       <input id="newServerOwnerName" class="field" placeholder="あなたの名前" value="Webユーザー">
       <button class="btn" onclick="window.createServer()">作成</button>
       <button class="btn secondary" style="margin-top:8px;" onclick="window.showServers()">キャンセル</button>
@@ -221,7 +228,7 @@
         <option value="private">非公開（招待制）</option>
       </select>
       <input id="newChannelPassword" class="field" placeholder="入室パスワード（空欄でなし）" type="password">
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.9rem;"><input type="checkbox" id="newChannelAi" checked> AI応答を有効にする</label>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.9rem;"><input type="checkbox" id="newChannelAi"> AI応答を有効にする</label>
       <button class="btn" id="createChannelBtn" onclick="window.createChannel()">作成</button>
       <button class="btn secondary" style="margin-top:8px;" onclick="window.showChannels()">キャンセル</button>
     </div>
@@ -495,7 +502,7 @@ window.onCreateChannelClick = function(){
 window.showCreateChannel = function(){
   editingChannelId = null;
   $('createChannelTitle').textContent = 'チャンネル作成';
-  $('newChannelName').value=''; $('newChannelType').value='text'; $('newChannelVisibility').value='public'; $('newChannelPassword').value=''; $('newChannelAi').checked=true;
+  $('newChannelName').value=''; $('newChannelType').value='text'; $('newChannelVisibility').value='public'; $('newChannelPassword').value=''; $('newChannelAi').checked=false;
   $('createChannelBtn').textContent='作成'; $('createChannelBtn').onclick=window.createChannel;
   show('createChannelScreen');
 };
@@ -589,7 +596,7 @@ async function renderServers(){
     const el=$('serverList');
     if(!list.length){ el.innerHTML='<div class="list-item"><div class="meta">サーバーがありません</div></div>'; return; }
     el.innerHTML = list.map(s=>`<div class="list-item" onclick="window.selectServer('${esc(s.id)}')">
-      <div><div style="font-weight:600;">${esc(s.name)}</div><div class="meta">${s.has_password?'鍵付き · ':''}${s.member_count||0}メンバー</div></div>
+      <div><div style="font-weight:600;">${esc(s.name)}</div><div class="meta">${s.invite_only?'招待制 · ':''}${s.has_password?'鍵付き · ':''}${s.member_count||0}メンバー</div></div>
       <div class="meta">参加</div>
     </div>`).join('') + `<div class="list-item" onclick="window.showCreateServer()"><div style="font-weight:600;color:var(--accent);">＋ 新規サーバー</div></div>`;
   }catch(e){ $('serverList').innerHTML='<div class="list-item"><div class="meta">接続できません</div></div>'; }
@@ -599,7 +606,16 @@ window.selectServer = async function(sid){
   activeServer = {id:sid};
   try{
     const info = await (await apiFetch(serverPath())).json();
-    if(!info.my_role && info.has_password){
+    if(!info.my_role && info.invite_only){
+      const code = prompt('このサーバーは招待制です。招待コードを入力してください')||'';
+      if(!code){ activeServer=null; return; }
+      const fd = new FormData();
+      fd.append('invite_code', code); fd.append('user_id', myId); fd.append('user_name', getProfile().name);
+      const res = await apiFetch(serverPath()+'/join', {method:'POST', body:fd});
+      const jr = await res.json();
+      if(jr.error){ activeServer=null; alert(jr.error); return; }
+      toast('サーバーに参加しました');
+    } else if(!info.my_role && info.has_password){
       const pw = prompt('パスワードを入力してください')||'';
       const fd = new FormData();
       fd.append('password', pw); fd.append('user_id', myId); fd.append('user_name', getProfile().name);
@@ -620,7 +636,7 @@ window.selectServer = async function(sid){
 window.createServer = async function(){
   const name=$('newServerName').value.trim();
   if(!name) return alert('名前を入力してください');
-  const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value); fd.append('owner_id',myId); fd.append('owner_name',$('newServerOwnerName').value.trim()||'Webユーザー');
+  const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value); fd.append('owner_id',myId); fd.append('owner_name',$('newServerOwnerName').value.trim()||'Webユーザー'); fd.append('invite_only',$('newServerInviteOnly').checked?'true':'false');
   try{
     const res=await apiFetch('/servers',{method:'POST',body:fd});
     const data=await res.json();
@@ -1187,8 +1203,10 @@ function renderOverview(){
   $('serverSettingsBody').innerHTML = `
     <div style="padding:16px;">
       <div class="setting-row"><label>サーバー名</label><input id="ssName" class="field" value="${esc(activeServer?.name||'')}"></div>
+      <div class="setting-row"><label>アイコンURL</label><input id="ssIcon" class="field" value="${esc(activeServer?.icon||'')}" placeholder="画像URL"></div>
       <div class="setting-row"><label>ウェルカムメッセージ</label><input id="ssWelcome" class="field" value="${esc(activeServer?.welcome_message||'')}"></div>
       <div class="setting-row"><label>参加パスワード（空欄で公開）</label><input id="ssPassword" class="field" type="password" placeholder="変更しない場合は空欄"></div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.9rem;"><input type="checkbox" id="ssInviteOnly" ${activeServer?.invite_only?'checked':''}> 招待コードのみで参加可能にする</label>
       <div class="setting-row"><label>Ollama URL</label><input id="ssOllamaUrl" class="field" value="${esc(activeServer?.ollama_url||'')}"></div>
       <div class="setting-row"><label>Ollama モデル</label><input id="ssOllamaModel" class="field" value="${esc(activeServer?.ollama_model||'llama3')}"></div>
       ${canManage?'<button class="btn" onclick="window.saveServerOverview()">保存</button>':''}
@@ -1200,9 +1218,11 @@ function renderOverview(){
 window.saveServerOverview = async function(){
   const fd=new FormData();
   fd.append('name',$('ssName').value.trim());
+  fd.append('icon',$('ssIcon').value);
   fd.append('welcome_message',$('ssWelcome').value);
   fd.append('ollama_url',$('ssOllamaUrl').value);
   fd.append('ollama_model',$('ssOllamaModel').value);
+  fd.append('invite_only',$('ssInviteOnly').checked?'true':'false');
   if($('ssPassword').value) fd.append('password',$('ssPassword').value);
   await apiFetch(serverPath(),{method:'PUT',body:fd});
   toast('保存しました'); renderChannels();
@@ -1309,25 +1329,48 @@ window.deleteInvite = async function(code){ await apiFetch(serverPath()+'/invite
 
 function renderBots(bots){
   const canManage = activeServer?.permissions?.includes('manage_bots') || activeServer?.my_role==='owner';
-  let html=[`<div class="addrow"><input id="newBotName" placeholder="ボット名"><input id="newBotPersonality" placeholder="性格" value="やさしい"><button onclick="window.createBot()">追加</button></div>`];
+  const channels = activeServer?.channels || [];
+  let html=[`<div class="addrow" style="flex-wrap:wrap;">
+    <input id="newBotName" placeholder="ボット名" style="min-width:120px;flex:1;">
+    <select id="newBotPersonality" style="min-width:120px;flex:1;"><option value="やさしい">やさしい</option><option value="元気">元気</option><option value="クール">クール</option><option value="おもしろ">おもしろ</option><option value="厳格">厳格</option></select>
+    <button onclick="window.createBot()">追加</button>
+  </div>`];
   bots.forEach(b=>{
-    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+    const channelOptions = channels.map(c=>`<option value="${esc(c.id)}" ${(b.channels||[]).includes(c.id)?'selected':''}>${esc(c.name)}</option>`).join('');
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px;">
       <div style="font-weight:600;">${esc(b.name)}</div>
       <div class="meta">性格: ${esc(b.personality)} · モデル: ${esc(b.model||'デフォルト')} · TTS:${b.voice_enabled?'ON':'OFF'} · 自発:${b.proactive_enabled?'ON':'OFF'}</div>
-      ${canManage?`<div class="actions"><button onclick="window.editBot('${esc(b.id)}')">編集</button><button onclick="window.deleteBot('${esc(b.id)}')">削除</button></div>`:''}
+      ${canManage?`<div style="width:100%;display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+        <div class="addrow"><input id="botName_${esc(b.id)}" value="${esc(b.name)}" placeholder="名前" style="flex:1;"><input id="botModel_${esc(b.id)}" value="${esc(b.model||'')}" placeholder="モデル名" style="flex:1;"></div>
+        <select id="botPersonality_${esc(b.id)}" style="width:100%;padding:8px;"><option value="やさしい" ${b.personality==='やさしい'?'selected':''}>やさしい</option><option value="元気" ${b.personality==='元気'?'selected':''}>元気</option><option value="クール" ${b.personality==='クール'?'selected':''}>クール</option><option value="おもしろ" ${b.personality==='おもしろ'?'selected':''}>おもしろ</option><option value="厳格" ${b.personality==='厳格'?'selected':''}>厳格</option></select>
+        <textarea id="botSystem_${esc(b.id)}" placeholder="system prompt" style="width:100%;min-height:60px;padding:8px;border-radius:6px;border:1px solid var(--outline);">${esc(b.system_prompt||'')}</textarea>
+        <div class="addrow"><input id="botTemp_${esc(b.id)}" type="number" step="0.1" min="0" max="2" value="${b.temperature??0.7}" placeholder="temperature" style="flex:1;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;"><input type="checkbox" id="botVoice_${esc(b.id)}" ${b.voice_enabled?'checked':''}> 音声</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;"><input type="checkbox" id="botProactive_${esc(b.id)}" ${b.proactive_enabled?'checked':''}> 自発</label></div>
+        <label style="font-size:0.85rem;">有効チャンネル（空欄ですべて）<select id="botChannels_${esc(b.id)}" multiple style="width:100%;min-height:60px;">${channelOptions}</select></label>
+        <div class="actions"><button onclick="window.saveBot('${esc(b.id)}')">保存</button><button onclick="window.deleteBot('${esc(b.id)}')">削除</button></div>
+      </div>`:''}
     </div>`);
   });
   $('serverSettingsBody').innerHTML=html.join('');
 }
 window.createBot = async function(){
   const name=$('newBotName').value.trim(); if(!name) return;
-  await apiFetch(serverPath()+'/bots',{method:'POST',body:new URLSearchParams({name,personality:$('newBotPersonality').value})});
+  await apiFetch(serverPath()+'/bots',{method:'POST',body:new URLSearchParams({name,personality:$('newBotPersonality').value,proactive_enabled:'false'})});
   renderServerSettings();
 };
-window.editBot = async function(bid){
-  const name=prompt('ボット名'); if(name===null) return;
-  const personality=prompt('性格'); if(personality===null) return;
-  await apiFetch(serverPath()+'/bots/'+bid,{method:'PUT',body:new URLSearchParams({name,personality})});
+window.saveBot = async function(bid){
+  const channels = Array.from($('botChannels_'+bid).selectedOptions).map(o=>o.value).join(',');
+  await apiFetch(serverPath()+'/bots/'+bid,{method:'PUT',body:new URLSearchParams({
+    name:$('botName_'+bid).value.trim(),
+    personality:$('botPersonality_'+bid).value,
+    model:$('botModel_'+bid).value,
+    system_prompt:$('botSystem_'+bid).value,
+    temperature:$('botTemp_'+bid).value,
+    voice_enabled:$('botVoice_'+bid).checked?'true':'false',
+    proactive_enabled:$('botProactive_'+bid).checked?'true':'false',
+    channels:channels
+  })});
   renderServerSettings();
 };
 window.deleteBot = async function(bid){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/bots/'+bid,{method:'DELETE'}); renderServerSettings(); };

@@ -85,11 +85,12 @@ def make_default_bot(name: str = "ファミちび", personality: str = "やさ�
 
 def make_default_server(server_id: str = "default", name: str = "Default", owner_id: str = "") -> dict:
     default_text = make_text_channel("一般")
-    default_text["ai_enabled"] = True
+    default_text["ai_enabled"] = False
     return {
         "id": server_id,
         "name": name,
         "password": "",
+        "invite_only": False,
         "icon": "",
         "welcome_message": "",
         "owner_id": owner_id,
@@ -111,7 +112,7 @@ def make_text_channel(name: str, password: str = "", visibility: str = "public")
         "visibility": visibility,
         "allowed_roles": ["member", "moderator", "admin", "owner"],
         "allowed_users": [],
-        "ai_enabled": True,
+        "ai_enabled": False,
         "created_at": datetime.utcnow().isoformat(),
         "messages": [],
         "notes": [],
@@ -171,6 +172,7 @@ def load_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 servers = json.load(f)
             for sid, s in servers.items():
+                s.setdefault("invite_only", False)
                 s.setdefault("owner_id", "")
                 s.setdefault("roles", dict(DEFAULT_ROLES))
                 s.setdefault("members", {})
@@ -473,19 +475,25 @@ async def discover():
 # ---------------------------------------------------------------------------
 
 @app.get("/servers")
-async def list_servers():
-    return [{"id": sid, "name": s["name"], "has_password": bool(s.get("password")), "icon": s.get("icon", ""), "member_count": len(s.get("members", {}))} for sid, s in servers.items()]
+async def list_servers(request: Request):
+    uid, _ = await identify_user(request)
+    result = []
+    for sid, s in servers.items():
+        if s.get("invite_only") and uid not in s.get("members", {}): continue
+        result.append({"id": sid, "name": s["name"], "has_password": bool(s.get("password")), "invite_only": bool(s.get("invite_only")), "icon": s.get("icon", ""), "member_count": len(s.get("members", {}))})
+    return result
 
 @app.post("/servers")
-async def create_new_server(name: str = Form(...), password: Optional[str] = Form(""), owner_id: Optional[str] = Form(None), owner_name: Optional[str] = Form("オーナー")):
+async def create_new_server(name: str = Form(...), password: Optional[str] = Form(""), owner_id: Optional[str] = Form(None), owner_name: Optional[str] = Form("オーナー"), invite_only: Optional[str] = Form("false")):
     sid = "srv_" + secrets.token_hex(4)
     uid = owner_id or str(uuid.uuid4())
     servers[sid] = make_default_server(sid, name)
     servers[sid]["password"] = password
+    servers[sid]["invite_only"] = invite_only.lower() in ("true", "1", "yes", "on")
     servers[sid]["owner_id"] = uid
     servers[sid]["members"][uid] = {"user_id": uid, "user_name": owner_name, "role": "owner", "joined_at": datetime.utcnow().isoformat()}
     await save_state()
-    return {"id": sid, "name": name, "owner_id": uid}
+    return {"id": sid, "name": name, "owner_id": uid, "invite_only": servers[sid]["invite_only"]}
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +524,7 @@ async def server_info(server: dict, user_id: str) -> dict:
         "icon": server.get("icon", ""),
         "welcome_message": server.get("welcome_message", ""),
         "has_password": bool(server.get("password")),
+        "invite_only": bool(server.get("invite_only", False)),
         "member_count": len(server.get("members", {})),
         "my_role": role,
         "my_user_id": user_id,
@@ -537,6 +546,7 @@ async def get_server_info(sid: str, request: Request):
             "id": sid, "name": s["name"], "icon": s.get("icon", ""),
             "welcome_message": s.get("welcome_message", ""),
             "has_password": bool(s.get("password")),
+            "invite_only": bool(s.get("invite_only", False)),
             "member_count": len(s.get("members", {})),
             "my_role": None, "my_user_id": None, "permissions": [], "owner_id": s.get("owner_id", ""),
             "channels": [], "roles": list(s.get("roles", {}).keys())
@@ -560,6 +570,8 @@ async def join_server(sid: str, request: Request, password: Optional[str] = Form
                 inv["uses"] = inv.get("uses", 0) + 1
                 invite_valid = True
                 break
+    if s.get("invite_only") and not invite_valid:
+        return JSONResponse({"error": "Invite required"}, status_code=403)
     if s.get("password") and s["password"] != password and not invite_valid:
         return JSONResponse({"error": "Invalid password or invite"}, status_code=403)
     role = "member" if invite_valid else ("member" if not s.get("password") else "guest")
@@ -582,7 +594,7 @@ async def leave_server(sid: str, request: Request, user_id: Optional[str] = Form
     return {"left": True}
 
 @app.put("/s/{sid}")
-async def update_server(sid: str, request: Request, name: Optional[str] = Form(None), icon: Optional[str] = Form(None), welcome_message: Optional[str] = Form(None), password: Optional[str] = Form(None)):
+async def update_server(sid: str, request: Request, name: Optional[str] = Form(None), icon: Optional[str] = Form(None), welcome_message: Optional[str] = Form(None), password: Optional[str] = Form(None), invite_only: Optional[str] = Form(None)):
     s = get_server(sid)
     uid, _ = await identify_user(request)
     require_permission(s, uid, "manage_server")
@@ -590,6 +602,7 @@ async def update_server(sid: str, request: Request, name: Optional[str] = Form(N
     if icon is not None: s["icon"] = icon
     if welcome_message is not None: s["welcome_message"] = welcome_message
     if password is not None: s["password"] = password
+    if invite_only is not None: s["invite_only"] = invite_only.lower() in ("true", "1", "yes", "on")
     await save_state()
     return {"ok": True}
 
@@ -1027,10 +1040,16 @@ async def list_bots(sid: str, request: Request):
     return [{"id": b["id"], "name": b.get("name", ""), "personality": b.get("personality", ""), "voice_enabled": b.get("voice_enabled", True), "proactive_enabled": b.get("proactive_enabled", True), "model": b.get("model", ""), "temperature": b.get("temperature", 0.7), "system_prompt": b.get("system_prompt", ""), "channels": b.get("channels", [])} for b in s.get("bots", [])]
 
 @app.post("/s/{sid}/bots")
-async def create_bot(sid: str, request: Request, name: str = Form(...), personality: str = Form("やさしい")):
+async def create_bot(sid: str, request: Request, name: str = Form(...), personality: str = Form("やさしい"), voice_enabled: Optional[str] = Form("true"), proactive_enabled: Optional[str] = Form("false"), model: Optional[str] = Form(""), temperature: Optional[float] = Form(0.7), system_prompt: Optional[str] = Form(""), channels: Optional[str] = Form("")):
     s = get_server(sid); uid, _ = await identify_user(request)
     require_permission(s, uid, "manage_bots")
     bot = make_default_bot(name, personality)
+    bot["voice_enabled"] = voice_enabled.lower() in ("true", "1", "yes", "on")
+    bot["proactive_enabled"] = proactive_enabled.lower() in ("true", "1", "yes", "on")
+    bot["model"] = model
+    bot["temperature"] = temperature
+    bot["system_prompt"] = system_prompt
+    bot["channels"] = [c.strip() for c in (channels or "").split(",") if c.strip()]
     s.setdefault("bots", []).append(bot)
     await save_state(); return {"id": bot["id"], "name": bot["name"]}
 

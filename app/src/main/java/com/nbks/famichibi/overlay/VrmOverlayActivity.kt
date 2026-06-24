@@ -121,9 +121,9 @@ class VrmOverlayActivity : ComponentActivity() {
         glSurfaceView.setRenderer(renderer)
         glSurfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
-        // 自分のアバターは非表示（自分以外を擬人化するため）
-        glSurfaceView.visibility = View.GONE
-        decorationContainer.visibility = View.GONE
+        // 自分のアバターも表示する
+        glSurfaceView.visibility = View.VISIBLE
+        decorationContainer.visibility = View.VISIBLE
 
         setupDrag()
         speechBubble.visibility = View.GONE

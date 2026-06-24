@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +42,9 @@ data class ChannelInfo(
 )
 
 @Serializable
+data class JoinResult(val joined: Boolean = false, val user_id: String = "", val role: String = "")
+
+@Serializable
 data class ServerDetail(
     val id: String = "",
     val name: String = "",
@@ -72,6 +76,7 @@ fun ServerScreen(
     var newChannelPassword by remember { mutableStateOf("") }
     var newChannelVisibility by remember { mutableStateOf("public") }
     var newChannelType by remember { mutableStateOf("text") }
+    var newChannelAi by remember { mutableStateOf(false) }
     var joinPassword by remember { mutableStateOf("") }
     var joiningChannel by remember { mutableStateOf<ChannelInfo?>(null) }
     var showServerPasswordDialog by remember { mutableStateOf(false) }
@@ -128,9 +133,13 @@ fun ServerScreen(
             )
             if (joinRes.status == HttpStatusCode.OK) {
                 val memberships = prefs.serverMemberships.first()
-                if (memberships.none { it.serverId == m.serverId && it.hostId == m.hostId }) {
-                    prefs.setServerMemberships(memberships + m.copy(serverName = info.name))
-                }
+                val joinResult = try { JsonConfig.json.decodeFromString<JoinResult>(joinRes.bodyAsText()) } catch (_: Exception) { null }
+                val newMembership = m.copy(serverName = info.name, role = joinResult?.role ?: m.role)
+                prefs.setServerMemberships(
+                    if (memberships.any { it.serverId == m.serverId && it.hostId == m.hostId }) {
+                        memberships.map { if (it.serverId == m.serverId && it.hostId == m.hostId) newMembership else it }
+                    } else memberships + newMembership
+                )
             } else {
                 snackbarHostState.showSnackbar("サーバーに参加できません")
             }
@@ -179,10 +188,10 @@ fun ServerScreen(
                     append("channel_type", newChannelType)
                     append("password", newChannelPassword)
                     append("visibility", newChannelVisibility)
-                    append("ai_enabled", "true")
+                    append("ai_enabled", if (newChannelAi) "true" else "false")
                 }
             )
-            newChannelName = ""; newChannelPassword = ""; newChannelVisibility = "public"; newChannelType = "text"
+            newChannelName = ""; newChannelPassword = ""; newChannelVisibility = "public"; newChannelType = "text"; newChannelAi = false
             showCreate = false
             refresh()
         } catch (_: Exception) {
@@ -202,6 +211,9 @@ fun ServerScreen(
                     }
                 },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } },
+                actions = {
+                    IconButton(onClick = { navController.navigate("server_settings") }) { Icon(Icons.Default.Settings, contentDescription = "サーバー設定") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
@@ -275,6 +287,10 @@ fun ServerScreen(
                         FilterChip(selected = newChannelVisibility == "private", onClick = { newChannelVisibility = "private" }, label = { Text("非公開") })
                     }
                     OutlinedTextField(value = newChannelPassword, onValueChange = { newChannelPassword = it }, label = { Text("パスワード（空欄で公開）") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Checkbox(checked = newChannelAi, onCheckedChange = { newChannelAi = it })
+                        Text("AI応答を有効にする", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { scope.launch { createChannel() } }, enabled = newChannelName.isNotBlank()) { Text("作成") } },

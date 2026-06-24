@@ -26,6 +26,7 @@ import com.nbks.famichibi.ui.channels.ChannelScreen
 import com.nbks.famichibi.ui.home.HomeScreen
 import com.nbks.famichibi.ui.notebook.NotebookScreen
 import com.nbks.famichibi.ui.server.ServerScreen
+import com.nbks.famichibi.ui.server.ServerSettingsScreen
 import com.nbks.famichibi.ui.settings.SettingsScreen
 import com.nbks.famichibi.ui.theme.FamiChibiTheme
 import com.nbks.famichibi.ui.voice.VoiceChannelScreen
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable("home") { HomeScreen(navController, prefs, snackbarHostState) }
                         composable("server") { ServerScreen(navController, prefs, snackbarHostState) }
+                        composable("server_settings") { ServerSettingsScreen(navController, prefs, snackbarHostState) }
                         composable("channel") { ChannelScreen(navController, prefs, snackbarHostState) }
                         composable("voice") { VoiceChannelScreen(navController, prefs, snackbarHostState) }
                         composable("notebook") { NotebookScreen(navController, prefs, snackbarHostState) }

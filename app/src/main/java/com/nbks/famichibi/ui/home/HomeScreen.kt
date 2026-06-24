@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -83,7 +84,7 @@ fun HomeScreen(
             if (res.status == HttpStatusCode.OK) {
                 val result = JsonConfig.json.decodeFromString<InviteJoinResult>(res.bodyAsText())
                 if (result.server_id.isBlank()) return
-                val membership = ServerMembership(serverId = result.server_id, hostId = host.id, serverName = result.server_name, nickname = displayName)
+                val membership = ServerMembership(serverId = result.server_id, hostId = host.id, serverName = result.server_name, nickname = displayName, role = result.role)
                 val list = memberships.filterNot { it.serverId == membership.serverId && it.hostId == membership.hostId } + membership
                 prefs.setServerMemberships(list)
                 memberships = list
@@ -133,6 +134,30 @@ fun HomeScreen(
         navController.navigate("server")
     }
 
+    suspend fun leaveMembership(m: ServerMembership) {
+        val host = hosts.find { it.id == m.hostId } ?: return
+        try {
+            val res = ApiClient.postForm("${host.url}/s/${m.serverId}/leave", userId, m.nickname.ifEmpty { userName }, Parameters.build { })
+            if (res.status == HttpStatusCode.OK) {
+                val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+                prefs.setServerMemberships(list)
+                memberships = list
+            } else snackbarHostState.showSnackbar("退会に失敗しました")
+        } catch (_: Exception) { snackbarHostState.showSnackbar("退会に失敗しました") }
+    }
+
+    suspend fun deleteRemoteServer(m: ServerMembership) {
+        val host = hosts.find { it.id == m.hostId } ?: return
+        try {
+            val res = ApiClient.delete("${host.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
+            if (res.status == HttpStatusCode.OK) {
+                val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+                prefs.setServerMemberships(list)
+                memberships = list
+            } else snackbarHostState.showSnackbar("削除に失敗しました")
+        } catch (_: Exception) { snackbarHostState.showSnackbar("削除に失敗しました") }
+    }
+
     Scaffold(
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -159,6 +184,7 @@ fun HomeScreen(
             } else {
                 items(memberships, key = { "${it.hostId}:${it.serverId}" }) { m ->
                     val host = hosts.find { it.id == m.hostId }
+                    var expanded by remember { mutableStateOf(false) }
                     Card(
                         onClick = { scope.launch { openServer(m) } },
                         modifier = Modifier.fillMaxWidth(),
@@ -174,7 +200,15 @@ fun HomeScreen(
                                 Text(m.serverName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                                 Text(host?.name ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Box {
+                                IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, contentDescription = "メニュー") }
+                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                    DropdownMenuItem(text = { Text("サーバーから退会") }, onClick = { expanded = false; scope.launch { leaveMembership(m) } })
+                                    if (m.role == "owner") {
+                                        DropdownMenuItem(text = { Text("サーバーを削除") }, onClick = { expanded = false; scope.launch { deleteRemoteServer(m) } })
+                                    }
+                                }
+                            }
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
@@ -277,6 +311,7 @@ private fun JoinServerDialog(
     var showCreateServer by remember { mutableStateOf(false) }
     var newServerName by remember { mutableStateOf("") }
     var newServerPassword by remember { mutableStateOf("") }
+    var newServerInviteOnly by remember { mutableStateOf(false) }
     var discoveredServers by remember { mutableStateOf(listOf<DiscoveredServer>()) }
 
     LaunchedEffect(Unit) { lanDiscovery.servers.collect { discoveredServers = it } }
@@ -301,7 +336,8 @@ private fun JoinServerDialog(
                 append("user_name", displayName)
             })
             if (res.status == HttpStatusCode.OK) {
-                onJoined(ServerMembership(serverId = server.id, hostId = host.id, serverName = server.name, nickname = displayName, joinedAt = java.time.Instant.now().toString()))
+                val joinRes = JsonConfig.json.decodeFromString<JoinResult>(res.bodyAsText())
+                onJoined(ServerMembership(serverId = server.id, hostId = host.id, serverName = server.name, nickname = displayName, joinedAt = java.time.Instant.now().toString(), role = joinRes.role))
             } else {
                 val text = try { res.bodyAsText() } catch (_: Exception) { "" }
                 if (text.contains("password") || text.contains("Invalid")) { selectedServer = server; step = 3 }
@@ -323,7 +359,7 @@ private fun JoinServerDialog(
             if (res.status == HttpStatusCode.OK) {
                 val result = JsonConfig.json.decodeFromString<InviteJoinResult>(res.bodyAsText())
                 if (result.server_id.isBlank()) return
-                onJoined(ServerMembership(serverId = result.server_id, hostId = host.id, serverName = result.server_name, nickname = displayName))
+                onJoined(ServerMembership(serverId = result.server_id, hostId = host.id, serverName = result.server_name, nickname = displayName, role = result.role))
             } else snackbarHostState.showSnackbar("招待コードが無効です")
         } catch (_: Exception) { snackbarHostState.showSnackbar("招待コードが無効です") }
         finally { isLoading = false }
@@ -423,6 +459,10 @@ private fun JoinServerDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = newServerName, onValueChange = { newServerName = it }, label = { Text("名前") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(value = newServerPassword, onValueChange = { newServerPassword = it }, label = { Text("パスワード（空欄で公開）") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Checkbox(checked = newServerInviteOnly, onCheckedChange = { newServerInviteOnly = it })
+                        Text("招待コードのみで参加可能", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
@@ -434,12 +474,12 @@ private fun JoinServerDialog(
                             try {
                                 val displayName = nickname.ifBlank { userName }
                                 val res = ApiClient.postForm("${h.url}/servers", resolvedUserId, displayName, Parameters.build {
-                                    append("name", newServerName); append("password", newServerPassword); append("owner_id", resolvedUserId); append("owner_name", displayName)
+                                    append("name", newServerName); append("password", newServerPassword); append("owner_id", resolvedUserId); append("owner_name", displayName); append("invite_only", if (newServerInviteOnly) "true" else "false")
                                 })
                                 if (res.status == HttpStatusCode.OK) {
                                     val info = JsonConfig.json.decodeFromString<Map<String, String>>(res.bodyAsText())
                                     val sid = info["id"] ?: return@launch
-                                    onJoined(ServerMembership(serverId = sid, hostId = h.id, serverName = newServerName, nickname = userName))
+                                    onJoined(ServerMembership(serverId = sid, hostId = h.id, serverName = newServerName, nickname = userName, role = "owner"))
                                 }
                             } catch (_: Exception) { snackbarHostState.showSnackbar("作成に失敗しました") }
                             finally { isLoading = false; showCreateServer = false }

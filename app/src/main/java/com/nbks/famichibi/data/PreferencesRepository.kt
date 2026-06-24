@@ -40,7 +40,8 @@ data class ServerMembership(
     val serverName: String = "",
     val nickname: String = "",
     val avatarUrl: String = "",
-    val joinedAt: String = ""
+    val joinedAt: String = "",
+    val role: String? = null
 )
 
 @Serializable

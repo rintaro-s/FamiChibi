@@ -193,7 +193,13 @@ class VrmOverlayService : Service() {
     }
 
     private fun pickNewTarget() {
-        // 自分自身は非表示なので何もしない
+        // 自分自身のアバターは中央付近に留める
+        val params = layoutParams ?: return
+        params.x = (screenWidth / 2f - params.width / 2f).toInt()
+        params.y = (screenHeight / 2f - params.height / 2f).toInt()
+        currentX = params.x.toFloat()
+        currentY = params.y.toFloat()
+        try { windowManager?.updateViewLayout(overlayView, params) } catch (_: Exception) {}
     }
 
     private fun pickNewTargetForParticipant(pv: ParticipantView) {
@@ -271,9 +277,9 @@ class VrmOverlayService : Service() {
         glView.setRenderer(r)
         glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
-        // 自分のアバターは非表示（自分以外を擬人化するため）
-        glView.visibility = View.GONE
-        view.findViewById<View>(R.id.decorationContainer).visibility = View.GONE
+        // 自分のアバターも表示する（誰もいないときのデフォルト表示として）
+        glView.visibility = View.VISIBLE
+        view.findViewById<View>(R.id.decorationContainer).visibility = View.VISIBLE
 
         val params = WindowManager.LayoutParams(
             dpToPx(90),
@@ -285,7 +291,7 @@ class VrmOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.START or Gravity.TOP
-        view.visibility = View.GONE
+        view.visibility = View.VISIBLE
 
         screenWidth = resources.displayMetrics.widthPixels
         screenHeight = resources.displayMetrics.heightPixels
