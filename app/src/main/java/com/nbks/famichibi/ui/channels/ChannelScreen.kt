@@ -32,22 +32,17 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.nbks.famichibi.data.HostConfig
 import com.nbks.famichibi.data.PreferencesRepository
 import com.nbks.famichibi.data.ServerMembership
+import com.nbks.famichibi.network.ApiClient
 import com.nbks.famichibi.network.ChatEvent
 import com.nbks.famichibi.network.ChatMessage
 import com.nbks.famichibi.network.ChatWebSocket
 import com.nbks.famichibi.util.formatName
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import com.nbks.famichibi.network.JsonConfig
 import java.util.*
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -61,6 +56,7 @@ fun ChannelScreen(
     val scope = rememberCoroutineScope()
 
     var userId by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf("") }
     var membership by remember { mutableStateOf<ServerMembership?>(null) }
     var host by remember { mutableStateOf<HostConfig?>(null) }
     var channelId by remember { mutableStateOf("") }
@@ -74,9 +70,10 @@ fun ChannelScreen(
     var showReactionSheet by remember { mutableStateOf(false) }
     var selectedMessageId by remember { mutableStateOf("") }
     var showWhisperSheet by remember { mutableStateOf(false) }
+    var isSending by remember { mutableStateOf(false) }
+    val seenMessageIds = remember { mutableSetOf<String>() }
 
     val listState = rememberLazyListState()
-    val httpClient = remember { HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } } }
     val micPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
     var isListening by remember { mutableStateOf(false) }
 
@@ -118,7 +115,7 @@ fun ChannelScreen(
                 if (!matches.isNullOrEmpty()) {
                     chatInput = matches[0]
                     if (chatInput.isNotBlank() && connected) {
-                        ChatWebSocket.sendMessage(membership?.nickname ?: "", userId, chatInput)
+                        ChatWebSocket.sendMessage(chatInput)
                         chatInput = ""
                     }
                 }
@@ -131,6 +128,7 @@ fun ChannelScreen(
 
     LaunchedEffect(Unit) {
         userId = prefs.userId.first()
+        userName = prefs.userName.first()
         val memberships = prefs.serverMemberships.first()
         membership = memberships.lastOrNull()
         channelId = prefs.activeChannelId.first()
@@ -141,10 +139,10 @@ fun ChannelScreen(
         val h = host ?: return@LaunchedEffect
         val m = membership ?: return@LaunchedEffect
         if (channelId.isNotEmpty()) {
-            ChatWebSocket.connect(h.url, m.serverId, channelId, userId, m.nickname, "")
+            ChatWebSocket.connect(h.url, m.serverId, channelId, userId, m.nickname.ifEmpty { userName }, "")
             try {
-                val response = httpClient.get("${h.url}/s/${m.serverId}/channels/$channelId/messages?limit=100")
-                if (response.status == HttpStatusCode.OK) messages = Json.decodeFromString(response.bodyAsText())
+                val response = ApiClient.get("${h.url}/s/${m.serverId}/channels/$channelId/messages?limit=100", userId, m.nickname.ifEmpty { userName })
+                if (response.status == HttpStatusCode.OK) messages = JsonConfig.json.decodeFromString(response.bodyAsText())
             } catch (_: Exception) {}
         }
     }
@@ -155,8 +153,9 @@ fun ChannelScreen(
         ChatWebSocket.events.collect { event ->
             when (event) {
                 is ChatEvent.Message -> {
+                    if (event.msg.id.isNotBlank() && !seenMessageIds.add(event.msg.id)) return@collect
                     messages = messages + event.msg
-                    if (event.msg.type == "agent" || event.msg.type == "proactive") speak(event.msg.content)
+                    if (event.msg.type == "agent") speak(event.msg.content)
                 }
                 is ChatEvent.UserJoined, is ChatEvent.UserLeft -> users = ChatWebSocket.roomUsers.value
                 is ChatEvent.Joined -> { users = event.users; connected = true }
@@ -180,26 +179,26 @@ fun ChannelScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(membership?.serverName ?: "チャット", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(membership?.serverName ?: "チャット", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("${users.size}人在室 ${if (connected) "" else "· 未接続"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row {
-                TextButton(onClick = { showWhisperSheet = true }, enabled = connected) { Text("ささやき") }
-                TextButton(onClick = { navController.navigate("notebook") }) { Text("ノート") }
+                TextButton(onClick = { showWhisperSheet = true }, enabled = connected, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("ささやき", style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = { navController.navigate("notebook") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("ノート", style = MaterialTheme.typography.bodySmall) }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
 
         LazyColumn(state = listState, modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
             items(messages, key = { it.id }) { msg ->
-                val isMe = msg.sender_id == userId || msg.sender == membership?.nickname
+                val isMe = msg.sender_id == userId
                 val bg = when {
-                    msg.type == "agent" || msg.type == "proactive" -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    msg.type == "agent" -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     isMe -> MaterialTheme.colorScheme.surfaceVariant
                     else -> MaterialTheme.colorScheme.surface
                 }
@@ -209,7 +208,7 @@ fun ChannelScreen(
                             onClick = {},
                             onLongClick = { if (msg.id.isNotBlank()) { selectedMessageId = msg.id; showReactionSheet = true } }
                         )
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
                 ) {
                     Text(msg.sender, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -226,7 +225,7 @@ fun ChannelScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 quickPhrases.forEach { phrase ->
-                    OutlinedButton(onClick = { if (connected) ChatWebSocket.sendMessage(membership?.nickname ?: "", userId, phrase) }, enabled = connected) { Text(phrase) }
+                    OutlinedButton(onClick = { if (connected) ChatWebSocket.sendMessage(phrase) }, enabled = connected) { Text(phrase) }
                 }
             }
         }
@@ -249,12 +248,14 @@ fun ChannelScreen(
             )
             IconButton(
                 onClick = {
-                    if (chatInput.isNotBlank() && connected) {
-                        ChatWebSocket.sendMessage(membership?.nickname ?: "", userId, chatInput)
+                    if (chatInput.isNotBlank() && connected && !isSending) {
+                        isSending = true
+                        ChatWebSocket.sendMessage(chatInput)
                         chatInput = ""
+                        scope.launch { kotlinx.coroutines.delay(300); isSending = false }
                     }
                 },
-                enabled = chatInput.isNotBlank() && connected,
+                enabled = chatInput.isNotBlank() && connected && !isSending,
                 modifier = Modifier.size(44.dp)
             ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "送信") }
         }
@@ -298,25 +299,12 @@ fun ChannelScreen(
                 Button(
                     onClick = {
                         val t = target ?: return@Button
-                        val h = host ?: return@Button
-                        val m = membership ?: return@Button
-                        scope.launch {
-                            try {
-                                httpClient.post("${h.url}/s/${m.serverId}/channels/$channelId/whisper") {
-                                    setBody(FormDataContent(Parameters.build {
-                                        append("from_user_id", userId)
-                                        append("from_user_name", m.nickname)
-                                        append("to_user_id", t.user_id)
-                                        append("content", whisperText)
-                                    }))
-                                }
-                                messages = messages + ChatMessage(
-                                    sender = "${m.nickname} → ${t.user_name}（ささやき）", sender_id = userId,
-                                    content = whisperText, type = "whisper", timestamp = java.time.Instant.now().toString()
-                                )
-                                whisperText = ""; showWhisperSheet = false
-                            } catch (_: Exception) {}
-                        }
+                        ChatWebSocket.sendWhisper(t.user_id, whisperText)
+                        messages = messages + ChatMessage(
+                            sender = "${userName} → ${t.user_name}（ささやき）", sender_id = userId,
+                            content = whisperText, type = "whisper", timestamp = java.time.Instant.now().toString()
+                        )
+                        whisperText = ""; showWhisperSheet = false
                     },
                     enabled = target != null && whisperText.isNotBlank() && connected,
                     modifier = Modifier.fillMaxWidth()

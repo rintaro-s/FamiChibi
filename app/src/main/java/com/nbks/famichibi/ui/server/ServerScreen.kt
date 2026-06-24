@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,40 +15,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.nbks.famichibi.data.HostConfig
+import java.util.UUID
 import com.nbks.famichibi.data.PreferencesRepository
 import com.nbks.famichibi.data.ServerMembership
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
+import com.nbks.famichibi.network.ApiClient
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
+import io.ktor.http.Parameters
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import com.nbks.famichibi.network.JsonConfig
 
 @Serializable
 data class ChannelInfo(
-    val id: String,
-    val name: String,
-    val type: String,
-    val has_password: Boolean,
-    val user_count: Int
+    val id: String = "",
+    val name: String = "",
+    val type: String = "text",
+    val visibility: String = "public",
+    val ai_enabled: Boolean = true,
+    val has_password: Boolean = false,
+    val user_count: Int = 0,
+    val can_manage: Boolean = false
 )
 
 @Serializable
 data class ServerDetail(
-    val id: String,
-    val name: String,
-    val icon: String,
-    val welcome_message: String,
-    val has_password: Boolean,
-    val member_count: Int,
-    val channels: List<ChannelInfo>
+    val id: String = "",
+    val name: String = "",
+    val icon: String = "",
+    val welcome_message: String = "",
+    val has_password: Boolean = false,
+    val member_count: Int = 0,
+    val my_role: String? = null,
+    val my_user_id: String? = null,
+    val permissions: List<String> = emptyList(),
+    val channels: List<ChannelInfo> = emptyList()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,138 +62,222 @@ fun ServerScreen(
     snackbarHostState: SnackbarHostState
 ) {
     val scope = rememberCoroutineScope()
-    var membership by remember { mutableStateOf<ServerMembership?>(null) }
+    var userId by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf("") }
     var host by remember { mutableStateOf<HostConfig?>(null) }
+    var membership by remember { mutableStateOf<ServerMembership?>(null) }
     var server by remember { mutableStateOf<ServerDetail?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var newChannelName by remember { mutableStateOf("") }
     var newChannelPassword by remember { mutableStateOf("") }
+    var newChannelVisibility by remember { mutableStateOf("public") }
+    var newChannelType by remember { mutableStateOf("text") }
     var joinPassword by remember { mutableStateOf("") }
     var joiningChannel by remember { mutableStateOf<ChannelInfo?>(null) }
+    var showServerPasswordDialog by remember { mutableStateOf(false) }
+    var pendingServerPassword by remember { mutableStateOf(false) }
 
-    val httpClient = remember { HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } } }
+    suspend fun loadState() {
+        var uid = prefs.userId.first()
+        if (uid.isBlank()) {
+            uid = UUID.randomUUID().toString()
+            prefs.setUserId(uid)
+        }
+        userId = uid
+        userName = prefs.userName.first().ifBlank { "お兄ちゃん" }
+        val hosts = prefs.hosts.first()
+        val sid = prefs.activeServerId.first()
+        val hid = prefs.activeHostId.first()
+        host = hosts.find { it.id == hid }
+        val memberships = prefs.serverMemberships.first()
+        membership = memberships.find { it.serverId == sid && it.hostId == hid }
+    }
 
     suspend fun refresh() {
-        val memberships = prefs.serverMemberships.first()
-        membership = memberships.lastOrNull()
-        val hosts = prefs.hosts.first()
-        host = hosts.find { it.id == membership?.hostId }
+        loadState()
         val h = host ?: return
-        val s = membership ?: return
+        val m = membership ?: return
         try {
-            server = Json.decodeFromString(httpClient.get("${h.url}/s/${s.serverId}").bodyAsText())
-        } catch (e: Exception) {
+            val res = ApiClient.get("${h.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
+            if (res.status == HttpStatusCode.OK) {
+                server = JsonConfig.json.decodeFromString(res.bodyAsText())
+            } else {
+                snackbarHostState.showSnackbar("サーバー情報の取得に失敗しました")
+            }
+        } catch (_: Exception) {
             snackbarHostState.showSnackbar("サーバー情報の取得に失敗しました")
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    suspend fun ensureJoined(password: String = "") {
+        val h = host ?: return
+        val m = membership ?: return
+        val name = m.nickname.ifEmpty { userName }
+        val res = ApiClient.get("${h.url}/s/${m.serverId}", userId, name)
+        if (res.status != HttpStatusCode.OK) return
+        val info = JsonConfig.json.decodeFromString<ServerDetail>(res.bodyAsText())
+        if (info.my_role == null) {
+            if (password.isEmpty() && info.has_password) {
+                pendingServerPassword = true
+                showServerPasswordDialog = true
+                return
+            }
+            val joinRes = ApiClient.postForm(
+                "${h.url}/s/${m.serverId}/join", userId, name,
+                Parameters.build { append("password", password) }
+            )
+            if (joinRes.status == HttpStatusCode.OK) {
+                val memberships = prefs.serverMemberships.first()
+                if (memberships.none { it.serverId == m.serverId && it.hostId == m.hostId }) {
+                    prefs.setServerMemberships(memberships + m.copy(serverName = info.name))
+                }
+            } else {
+                snackbarHostState.showSnackbar("サーバーに参加できません")
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadState()
+        ensureJoined()
+        if (!showServerPasswordDialog) refresh()
+    }
 
     suspend fun joinChannel(ch: ChannelInfo, password: String) {
         val h = host ?: return
         val m = membership ?: return
-        try {
-            val response = httpClient.submitForm(
-                url = "${h.url}/s/${m.serverId}/channels/${ch.id}/join",
-                formParameters = Parameters.build {
-                    append("user_id", prefs.userId.first())
-                    append("user_name", m.nickname)
-                    append("password", password)
+        val name = m.nickname.ifEmpty { userName }
+        prefs.setActiveChannelId(ch.id)
+        if (ch.type == "voice") {
+            try {
+                val response = ApiClient.postForm(
+                    "${h.url}/s/${m.serverId}/channels/${ch.id}/voice/join", userId, name,
+                    Parameters.build { append("password", password) }
+                )
+                if (response.status == HttpStatusCode.OK) {
+                    navController.navigate("voice")
+                } else {
+                    snackbarHostState.showSnackbar("参加に失敗しました")
                 }
-            )
-            if (response.status == HttpStatusCode.OK) {
-                prefs.setActiveChannelId(ch.id)
-                if (ch.type == "voice") navController.navigate("voice")
-                else navController.navigate("channel")
-            } else {
+            } catch (_: Exception) {
                 snackbarHostState.showSnackbar("参加に失敗しました")
             }
-        } catch (e: Exception) {
-            snackbarHostState.showSnackbar("参加に失敗しました")
+        } else {
+            navController.navigate("channel")
         }
     }
 
     suspend fun createChannel() {
         val h = host ?: return
         val m = membership ?: return
+        val name = m.nickname.ifEmpty { userName }
         try {
-            httpClient.submitForm(
-                url = "${h.url}/s/${m.serverId}/channels",
-                formParameters = Parameters.build {
+            ApiClient.postForm(
+                "${h.url}/s/${m.serverId}/channels", userId, name,
+                Parameters.build {
                     append("name", newChannelName)
-                    append("channel_type", "text")
+                    append("channel_type", newChannelType)
                     append("password", newChannelPassword)
+                    append("visibility", newChannelVisibility)
+                    append("ai_enabled", "true")
                 }
             )
-            newChannelName = ""
-            newChannelPassword = ""
+            newChannelName = ""; newChannelPassword = ""; newChannelVisibility = "public"; newChannelType = "text"
             showCreate = false
             refresh()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             snackbarHostState.showSnackbar("作成に失敗しました")
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(server?.name ?: "サーバー", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Button(onClick = { showCreate = true }) { Text("チャンネル作成") }
-        }
-        if (!server?.welcome_message.isNullOrBlank()) {
-            Text(server?.welcome_message ?: "", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-        }
-        val metaText = "${server?.member_count ?: 0}メンバー / ${server?.channels?.size ?: 0}チャンネル"
-        Text(metaText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
+    val canCreateChannel = server?.permissions?.contains("manage_channels") == true || server?.my_role == "owner"
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-        val textChannels = server?.channels?.filter { it.type != "voice" } ?: emptyList()
-        val voiceChannels = server?.channels?.filter { it.type == "voice" } ?: emptyList()
-
-        if (textChannels.isEmpty() && voiceChannels.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text("まだチャンネルがありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-
-        if (textChannels.isNotEmpty()) {
-            Text("テキストチャンネル", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-            textChannels.forEach { ch ->
-                ChannelRow(ch) {
-                    joiningChannel = ch
-                    if (!ch.has_password) scope.launch { joinChannel(ch, "") }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(server?.name ?: "サーバー", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${server?.member_count ?: 0}人 · ${server?.channels?.size ?: 0}CH", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            )
+        },
+        floatingActionButton = {
+            if (canCreateChannel) {
+                FloatingActionButton(onClick = { showCreate = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "チャンネル作成")
                 }
             }
         }
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
+            if (!server?.welcome_message.isNullOrBlank()) {
+                Text(
+                    server?.welcome_message ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
 
-        if (voiceChannels.isNotEmpty()) {
-            Text("ボイスチャンネル", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-            voiceChannels.forEach { ch ->
-                ChannelRow(ch) {
-                    joiningChannel = ch
-                    if (!ch.has_password) scope.launch { joinChannel(ch, "") }
+            val textChannels = server?.channels?.filter { it.type != "voice" } ?: emptyList()
+            val voiceChannels = server?.channels?.filter { it.type == "voice" } ?: emptyList()
+
+            if (textChannels.isEmpty() && voiceChannels.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Text("まだチャンネルがありません\n右下の＋から作成できます", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
+
+            if (textChannels.isNotEmpty()) {
+                SectionHeader("テキスト")
+                textChannels.forEach { ch ->
+                    ChannelRow(ch) {
+                        joiningChannel = ch
+                        if (!ch.has_password) scope.launch { joinChannel(ch, "") }
+                    }
+                }
+            }
+
+            if (voiceChannels.isNotEmpty()) {
+                SectionHeader("ボイス")
+                voiceChannels.forEach { ch ->
+                    ChannelRow(ch) {
+                        joiningChannel = ch
+                        if (!ch.has_password) scope.launch { joinChannel(ch, "") }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(80.dp))
         }
     }
 
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
-            title = { Text("チャンネル作成") },
+            title = { Text("チャンネル作成", style = MaterialTheme.typography.titleMedium) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(value = newChannelName, onValueChange = { newChannelName = it }, label = { Text("名前") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = newChannelPassword, onValueChange = { newChannelPassword = it }, label = { Text("パスワード（空欄で公開）") }, modifier = Modifier.fillMaxWidth())
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(value = newChannelName, onValueChange = { newChannelName = it }, label = { Text("名前") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = newChannelType == "text", onClick = { newChannelType = "text" }, label = { Text("テキスト") })
+                        FilterChip(selected = newChannelType == "voice", onClick = { newChannelType = "voice" }, label = { Text("ボイス") })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = newChannelVisibility == "public", onClick = { newChannelVisibility = "public" }, label = { Text("公開") })
+                        FilterChip(selected = newChannelVisibility == "private", onClick = { newChannelVisibility = "private" }, label = { Text("非公開") })
+                    }
+                    OutlinedTextField(value = newChannelPassword, onValueChange = { newChannelPassword = it }, label = { Text("パスワード（空欄で公開）") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { scope.launch { createChannel() } }, enabled = newChannelName.isNotBlank()) { Text("作成") }
-            },
+            confirmButton = { TextButton(onClick = { scope.launch { createChannel() } }, enabled = newChannelName.isNotBlank()) { Text("作成") } },
             dismissButton = { TextButton(onClick = { showCreate = false }) { Text("キャンセル") } }
         )
     }
@@ -196,38 +285,63 @@ fun ServerScreen(
     if (joiningChannel != null && joiningChannel!!.has_password) {
         AlertDialog(
             onDismissRequest = { joiningChannel = null },
-            title = { Text("${joiningChannel!!.name}に参加") },
-            text = {
-                OutlinedTextField(value = joinPassword, onValueChange = { joinPassword = it }, label = { Text("パスワード") }, modifier = Modifier.fillMaxWidth())
-            },
-            confirmButton = {
-                TextButton(onClick = { scope.launch { joinChannel(joiningChannel!!, joinPassword); joiningChannel = null; joinPassword = "" } }) { Text("参加") }
-            },
+            title = { Text("${joiningChannel!!.name}に参加", style = MaterialTheme.typography.titleMedium) },
+            text = { OutlinedTextField(value = joinPassword, onValueChange = { joinPassword = it }, label = { Text("パスワード") }, modifier = Modifier.fillMaxWidth(), singleLine = true) },
+            confirmButton = { TextButton(onClick = { scope.launch { joinChannel(joiningChannel!!, joinPassword); joiningChannel = null; joinPassword = "" } }) { Text("参加") } },
             dismissButton = { TextButton(onClick = { joiningChannel = null }) { Text("キャンセル") } }
+        )
+    }
+
+    if (showServerPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showServerPasswordDialog = false; pendingServerPassword = false },
+            title = { Text("${server?.name ?: "サーバー"}に参加", style = MaterialTheme.typography.titleMedium) },
+            text = { OutlinedTextField(value = joinPassword, onValueChange = { joinPassword = it }, label = { Text("パスワード") }, modifier = Modifier.fillMaxWidth(), singleLine = true) },
+            confirmButton = { TextButton(onClick = { scope.launch { ensureJoined(joinPassword); showServerPasswordDialog = false; pendingServerPassword = false; joinPassword = ""; refresh() } }) { Text("参加") } },
+            dismissButton = { TextButton(onClick = { showServerPasswordDialog = false; pendingServerPassword = false }) { Text("キャンセル") } }
         )
     }
 }
 
 @Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
 private fun ChannelRow(channel: ChannelInfo, onClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(channel.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text("${channel.user_count}人在室", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (channel.has_password) {
-                    Icon(Icons.Default.Lock, contentDescription = "鍵付き", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("鍵付き", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onClick) { Text("参加") }
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            Text("#", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(channel.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    buildString {
+                        if (channel.visibility == "private") append("非公開 · ")
+                        append("${channel.user_count}人在室")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (channel.has_password) {
+                Icon(Icons.Default.Lock, contentDescription = "鍵付き", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("参加") }
+        }
     }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 }

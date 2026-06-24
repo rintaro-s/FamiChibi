@@ -130,7 +130,7 @@ class VrmOverlayService : Service() {
                     val memberships = runBlocking { prefs.serverMemberships.first() }
                     val membership = memberships.lastOrNull()
                     val uid = runBlocking { prefs.userId.first().ifEmpty { java.util.UUID.randomUUID().toString().also { prefs.setUserId(it) } } }
-                    ChatWebSocket.sendMessage(membership?.nickname ?: "", uid, message)
+                    ChatWebSocket.sendMessage(message)
                 }
             }
         }

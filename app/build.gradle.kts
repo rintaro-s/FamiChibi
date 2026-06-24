@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.accompanist.permissions)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.nanohttpd)
+    implementation("io.getstream:stream-webrtc-android:1.3.2")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

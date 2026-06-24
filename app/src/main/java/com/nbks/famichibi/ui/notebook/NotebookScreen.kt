@@ -14,27 +14,23 @@ import androidx.navigation.NavController
 import com.nbks.famichibi.data.HostConfig
 import com.nbks.famichibi.data.PreferencesRepository
 import com.nbks.famichibi.data.ServerMembership
+import com.nbks.famichibi.network.ApiClient
 import com.nbks.famichibi.network.ChatWebSocket
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
+import io.ktor.http.Parameters
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import com.nbks.famichibi.network.JsonConfig
 
 @Serializable
-data class NoteItem(val id: String, val content: String, val category: String, val created_by: String, val created_at: String, val due_at: String? = null, val is_pinned: Boolean = false)
+data class NoteItem(val id: String = "", val content: String = "", val category: String = "general", val author_name: String = "", val created_at: String = "")
 @Serializable
-data class TaskItem(val id: String, val title: String, val assignee_user_id: String? = null, val assignee_name: String? = null, val due_at: String? = null, val done: Boolean = false, val created_by: String, val created_at: String)
+data class TaskItem(val id: String = "", val title: String = "", val assignee: String? = null, val due: String? = null, val done: Boolean = false, val created_at: String = "")
 @Serializable
-data class EventItem(val id: String, val title: String, val event_at: String, val created_by: String, val created_at: String)
+data class EventItem(val id: String = "", val title: String = "", val event_at: String = "", val created_at: String = "")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +45,7 @@ fun NotebookScreen(
     var channelId by remember { mutableStateOf("") }
     var host by remember { mutableStateOf<HostConfig?>(null) }
     var membership by remember { mutableStateOf<ServerMembership?>(null) }
+    var userId by remember { mutableStateOf("") }
     var userName by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf(0) }
 
@@ -63,18 +60,18 @@ fun NotebookScreen(
     var newEventTitle by remember { mutableStateOf("") }
     var newEventAt by remember { mutableStateOf("") }
 
-    val httpClient = remember { HttpClient(CIO) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } } }
     val connected = ChatWebSocket.connectionState.collectAsState().value
 
-    fun path() = "${host?.url}/s/${membership?.serverId}/channels/$channelId"
+    suspend fun path() = "${host?.url}/s/${membership?.serverId}/channels/$channelId"
+    suspend fun name() = membership?.nickname?.ifEmpty { userName } ?: userName
 
     fun refresh() {
         if (channelId.isEmpty() || host == null || membership == null) return
         scope.launch {
             try {
-                notes = Json.decodeFromString(httpClient.get("${path()}/notes").bodyAsText())
-                tasks = Json.decodeFromString(httpClient.get("${path()}/tasks").bodyAsText())
-                events = Json.decodeFromString(httpClient.get("${path()}/events").bodyAsText())
+                notes = JsonConfig.json.decodeFromString(ApiClient.get("${path()}/notes", userId, name()).bodyAsText())
+                tasks = JsonConfig.json.decodeFromString(ApiClient.get("${path()}/tasks", userId, name()).bodyAsText())
+                events = JsonConfig.json.decodeFromString(ApiClient.get("${path()}/events", userId, name()).bodyAsText())
             } catch (e: Exception) {
                 snackbarHostState.showSnackbar("読み込みに失敗しました")
             }
@@ -83,11 +80,12 @@ fun NotebookScreen(
 
     LaunchedEffect(Unit) {
         channelId = prefs.activeChannelId.first()
+        userId = prefs.userId.first()
+        userName = prefs.userName.first()
         val memberships = prefs.serverMemberships.first()
         membership = memberships.lastOrNull()
         val hosts = prefs.hosts.first()
         host = hosts.find { it.id == membership?.hostId }
-        userName = membership?.nickname ?: ""
         refresh()
     }
 
@@ -95,17 +93,11 @@ fun NotebookScreen(
         if (channelId.isEmpty() || newNote.isBlank() || host == null || membership == null) return
         scope.launch {
             try {
-                httpClient.submitForm("${path()}/notes", formParameters = Parameters.build {
-                    append("content", newNote); append("category", noteCategory); append("created_by", userName)
+                ApiClient.postForm("${path()}/notes", userId, name(), Parameters.build {
+                    append("content", newNote); append("category", noteCategory)
                 })
                 newNote = ""; refresh()
             } catch (_: Exception) {}
-        }
-    }
-
-    fun pinNote(id: String) {
-        scope.launch {
-            try { httpClient.post("${path()}/notes/$id/pin"); refresh() } catch (_: Exception) {}
         }
     }
 
@@ -113,8 +105,8 @@ fun NotebookScreen(
         if (channelId.isEmpty() || newTask.isBlank() || host == null || membership == null) return
         scope.launch {
             try {
-                httpClient.submitForm("${path()}/tasks", formParameters = Parameters.build {
-                    append("title", newTask); append("created_by", userName); append("assignee_name", newTaskAssignee)
+                ApiClient.postForm("${path()}/tasks", userId, name(), Parameters.build {
+                    append("title", newTask); append("assignee", newTaskAssignee)
                 })
                 newTask = ""; newTaskAssignee = ""; refresh()
             } catch (_: Exception) {}
@@ -123,7 +115,7 @@ fun NotebookScreen(
 
     fun doneTask(id: String) {
         scope.launch {
-            try { httpClient.post("${path()}/tasks/$id/done"); refresh() } catch (_: Exception) {}
+            try { ApiClient.putForm("${path()}/tasks/$id", userId, name(), Parameters.build { append("done", "true") }); refresh() } catch (_: Exception) {}
         }
     }
 
@@ -131,8 +123,8 @@ fun NotebookScreen(
         if (channelId.isEmpty() || newEventTitle.isBlank() || newEventAt.isBlank() || host == null || membership == null) return
         scope.launch {
             try {
-                httpClient.submitForm("${path()}/events", formParameters = Parameters.build {
-                    append("title", newEventTitle); append("event_at", newEventAt); append("created_by", userName)
+                ApiClient.postForm("${path()}/events", userId, name(), Parameters.build {
+                    append("title", newEventTitle); append("event_at", newEventAt)
                 })
                 newEventTitle = ""; newEventAt = ""; refresh()
             } catch (_: Exception) {}
@@ -143,13 +135,8 @@ fun NotebookScreen(
         if (channelId.isEmpty() || host == null || membership == null) return
         scope.launch {
             try {
-                val context = notes.joinToString("\n") { it.content }
-                if (context.isBlank()) { snackbarHostState.showSnackbar("メモがありません"); return@launch }
-                val response = httpClient.submitForm("${host?.url}/s/${membership?.serverId}/summarize", formParameters = Parameters.build { append("context", context) })
-                if (response.status == HttpStatusCode.OK) {
-                    val body = Json.decodeFromString<Map<String, String>>(response.bodyAsText())
-                    snackbarHostState.showSnackbar("要約: ${body["summary"] ?: "なし"}")
-                }
+                ApiClient.post("${path()}/summarize", userId, name())
+                refresh()
             } catch (e: Exception) { snackbarHostState.showSnackbar("要約に失敗しました") }
         }
     }
@@ -177,7 +164,7 @@ fun NotebookScreen(
 
         Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
             when (tab) {
-                0 -> NotesTab(notes, newNote, { newNote = it }, noteCategory, { noteCategory = it }, ::addNote, ::pinNote)
+                0 -> NotesTab(notes, newNote, { newNote = it }, noteCategory, { noteCategory = it }, ::addNote)
                 1 -> TasksTab(tasks, newTask, { newTask = it }, newTaskAssignee, { newTaskAssignee = it }, ::addTask, ::doneTask)
                 2 -> EventsTab(events, newEventTitle, { newEventTitle = it }, newEventAt, { newEventAt = it }, ::addEvent)
             }
@@ -187,7 +174,7 @@ fun NotebookScreen(
 }
 
 @Composable
-private fun NotesTab(notes: List<NoteItem>, newNote: String, onNewNoteChange: (String) -> Unit, category: String, onCategoryChange: (String) -> Unit, onAdd: () -> Unit, onPin: (String) -> Unit) {
+private fun NotesTab(notes: List<NoteItem>, newNote: String, onNewNoteChange: (String) -> Unit, category: String, onCategoryChange: (String) -> Unit, onAdd: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = newNote, onValueChange = onNewNoteChange, label = { Text("メモ") }, modifier = Modifier.weight(1f), singleLine = true)
@@ -198,10 +185,9 @@ private fun NotesTab(notes: List<NoteItem>, newNote: String, onNewNoteChange: (S
         notes.forEach { note ->
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(note.content, style = MaterialTheme.typography.bodyLarge, fontWeight = if (note.is_pinned) FontWeight.SemiBold else FontWeight.Normal)
-                    Text("${categoryLabel(note.category)} · ${note.created_by}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(note.content, style = MaterialTheme.typography.bodyLarge)
+                    Text("${categoryLabel(note.category)} · ${note.author_name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton(onClick = { onPin(note.id) }) { Text(if (note.is_pinned) "解除" else "ピン") }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         }
@@ -236,7 +222,7 @@ private fun TasksTab(tasks: List<TaskItem>, newTask: String, onNewTaskChange: (S
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(task.title, style = MaterialTheme.typography.bodyLarge, textDecoration = if (task.done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
-                    val meta = listOfNotNull(task.assignee_name?.let { "担当: $it" }, task.due_at?.take(16)?.replace("T", " "))
+                    val meta = listOfNotNull(task.assignee?.let { "担当: $it" }, task.due?.take(16)?.replace("T", " "))
                     if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (!task.done) TextButton(onClick = { onDone(task.id) }) { Text("完了") }

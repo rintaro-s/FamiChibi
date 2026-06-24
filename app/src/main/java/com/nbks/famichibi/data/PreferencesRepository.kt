@@ -82,7 +82,10 @@ class PreferencesRepository(private val context: Context) {
         try { json.decodeFromString(str) } catch (_: Exception) { emptyList() }
     }
     val userId: Flow<String> = context.dataStore.data.map { it[USER_ID] ?: "" }
+    val activeHostId: Flow<String> = context.dataStore.data.map { it[ACTIVE_HOST_ID] ?: "" }
+    val activeServerId: Flow<String> = context.dataStore.data.map { it[ACTIVE_SERVER_ID] ?: "" }
     val activeChannelId: Flow<String> = context.dataStore.data.map { it[ACTIVE_CHANNEL_ID] ?: "" }
+    val userName: Flow<String> = context.dataStore.data.map { it[USER_NAME] ?: "" }
     val vrmPath: Flow<String> = context.dataStore.data.map { it[VRM_PATH] ?: "" }
     val myVrmPath: Flow<String> = context.dataStore.data.map { it[MY_VRM_PATH] ?: "" }
     val selectedAssetVrm: Flow<String> = context.dataStore.data.map { it[SELECTED_ASSET_VRM] ?: "" }
@@ -107,6 +110,8 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setHosts(list: List<HostConfig>) { context.dataStore.edit { it[HOSTS] = json.encodeToString(list) } }
     suspend fun setServerMemberships(list: List<ServerMembership>) { context.dataStore.edit { it[SERVER_MEMBERSHIPS] = json.encodeToString(list) } }
     suspend fun setUserId(id: String) { context.dataStore.edit { it[USER_ID] = id } }
+    suspend fun setActiveHostId(id: String) { context.dataStore.edit { it[ACTIVE_HOST_ID] = id } }
+    suspend fun setActiveServerId(id: String) { context.dataStore.edit { it[ACTIVE_SERVER_ID] = id } }
     suspend fun setActiveChannelId(id: String) { context.dataStore.edit { it[ACTIVE_CHANNEL_ID] = id } }
     suspend fun setUserName(name: String) { context.dataStore.edit { it[USER_NAME] = name } }
     suspend fun setVrmPath(path: String) { context.dataStore.edit { it[VRM_PATH] = path } }

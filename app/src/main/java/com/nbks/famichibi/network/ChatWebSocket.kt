@@ -8,8 +8,10 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import java.net.URLEncoder
 
 @Serializable
 data class ChatMessage(
@@ -17,13 +19,13 @@ data class ChatMessage(
     val sender: String = "",
     val sender_id: String = "",
     val content: String = "",
-    val type: String = "user",
+    val type: String = "chat",
     val timestamp: String = ""
 )
 
 data class RoomUser(
-    val user_id: String,
-    val user_name: String
+    val user_id: String = "",
+    val user_name: String = ""
 )
 
 sealed class ChatEvent {
@@ -36,16 +38,17 @@ sealed class ChatEvent {
     data class Reaction(val messageId: String, val emoji: String, val fromUserId: String, val fromUserName: String, val timestamp: String) : ChatEvent()
     data class NotebookUpdate(val kind: String) : ChatEvent()
     data class VoiceSignal(val type: String, val fromUserId: String, val toUserId: String, val sdp: String?, val candidate: String?, val sdpMLineIndex: Int?, val sdpMid: String?) : ChatEvent()
-    data class VoiceUserJoined(val userId: String, val userName: String) : ChatEvent()
-    data class VoiceUserLeft(val userId: String) : ChatEvent()
     data class Error(val message: String) : ChatEvent()
 }
 
 object ChatWebSocket {
     private val client = HttpClient(CIO) {
-        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        install(ContentNegotiation) { json(JsonConfig.json) }
         install(WebSockets)
     }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mutex = kotlinx.coroutines.sync.Mutex()
 
     private var session: DefaultClientWebSocketSession? = null
     private var reconnectJob: Job? = null
@@ -64,42 +67,56 @@ object ChatWebSocket {
         private set
 
     fun connect(hostUrl: String, serverId: String, roomId: String, userId: String, userName: String, password: String = "") {
-        disconnect()
-        currentHostUrl = hostUrl
-        currentServerId = serverId
-        currentRoomId = roomId
-        reconnectJob = CoroutineScope(Dispatchers.IO).launch {
-            while (isActive) {
-                try {
-                    val wsUrl = hostUrl.replace("http://", "ws://").replace("https://", "wss://")
-                    client.webSocket("$wsUrl/ws/$serverId/$roomId") {
-                        session = this
-                        _connectionState.value = true
-                        send(Json.encodeToString(JoinPayload.serializer(), JoinPayload("join", userId, userName, password)))
-                        for (frame in incoming) {
-                            when (frame) {
-                                is Frame.Text -> {
-                                    try {
-                                        val msg = Json.decodeFromString(ServerMessage.serializer(), frame.readText())
-                                        handleServerMessage(msg)
-                                    } catch (_: Exception) {}
-                                }
-                                else -> {}
-                            }
-                        }
-                    }
-                } catch (_: Exception) {
-                } finally {
-                    _connectionState.value = false
-                    session = null
-                }
-                delay(3000)
+        scope.launch {
+            mutex.withLock {
+                disconnectInternal()
+                currentHostUrl = hostUrl
+                currentServerId = serverId
+                currentRoomId = roomId
+                reconnectJob = scope.launch { connectionLoop(hostUrl, serverId, roomId, userId, userName, password) }
             }
         }
     }
 
+    private suspend fun connectionLoop(
+        hostUrl: String, serverId: String, roomId: String,
+        userId: String, userName: String, password: String
+    ) {
+        val wsUrl = hostUrl.replace("http://", "ws://").replace("https://", "wss://")
+        val query = "?user_id=${encode(userId)}&user_name=${encode(userName)}" +
+                (if (password.isNotBlank()) "&password=${encode(password)}" else "")
+        while (currentCoroutineContext().isActive) {
+            try {
+                client.webSocket("$wsUrl/ws/$serverId/$roomId$query") {
+                    session = this
+                    _connectionState.value = true
+                    for (frame in incoming) {
+                        if (!isActive) break
+                        when (frame) {
+                            is Frame.Text -> {
+                                try {
+                                    val msg = JsonConfig.json.decodeFromString(ServerMessage.serializer(), frame.readText())
+                                    handleServerMessage(msg)
+                                } catch (_: Exception) {}
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                _connectionState.value = false
+                session = null
+            }
+            delay(3000)
+        }
+    }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
     private suspend fun handleServerMessage(msg: ServerMessage) {
         when (msg.type) {
+            "system" -> { /* system messages carry join/leave info via content, ignore user counts here */ }
             "joined" -> {
                 val users = msg.users?.map { RoomUser(it.user_id, it.user_name) } ?: emptyList()
                 _roomUsers.value = users
@@ -120,7 +137,7 @@ object ChatWebSocket {
                 _roomUsers.value = users
                 _events.emit(ChatEvent.UserLeft(msg.user_id ?: "", msg.user_name ?: "", users))
             }
-            "user", "agent", "proactive" -> _events.emit(ChatEvent.Message(ChatMessage(
+            "chat", "agent" -> _events.emit(ChatEvent.Message(ChatMessage(
                 id = msg.id ?: "", sender = msg.sender ?: "", sender_id = msg.sender_id ?: "",
                 content = msg.content ?: "", type = msg.type, timestamp = msg.timestamp ?: ""
             )))
@@ -133,83 +150,93 @@ object ChatWebSocket {
                 toUserId = msg.to_user_id ?: "", timestamp = msg.timestamp ?: ""
             ))
             "reaction" -> _events.emit(ChatEvent.Reaction(
-                messageId = msg.message_id ?: "", emoji = msg.emoji ?: "",
+                messageId = msg.target_id ?: "", emoji = msg.reaction ?: "",
                 fromUserId = msg.from_user_id ?: "", fromUserName = msg.from_user_name ?: "", timestamp = msg.timestamp ?: ""
             ))
-            "voice_offer" -> _events.emit(ChatEvent.VoiceSignal(
-                type = "offer", fromUserId = msg.from_user_id ?: "", toUserId = msg.to_user_id ?: "",
-                sdp = msg.sdp, candidate = null, sdpMLineIndex = null, sdpMid = null
-            ))
-            "voice_answer" -> _events.emit(ChatEvent.VoiceSignal(
-                type = "answer", fromUserId = msg.from_user_id ?: "", toUserId = msg.to_user_id ?: "",
-                sdp = msg.sdp, candidate = null, sdpMLineIndex = null, sdpMid = null
-            ))
-            "voice_ice" -> _events.emit(ChatEvent.VoiceSignal(
-                type = "ice", fromUserId = msg.from_user_id ?: "", toUserId = msg.to_user_id ?: "",
-                sdp = null, candidate = msg.candidate, sdpMLineIndex = msg.sdpMLineIndex, sdpMid = msg.sdpMid
-            ))
-            "voice_user_joined" -> _events.emit(ChatEvent.VoiceUserJoined(msg.user_id ?: "", msg.user_name ?: ""))
-            "voice_user_left" -> _events.emit(ChatEvent.VoiceUserLeft(msg.user_id ?: ""))
-            "note_added", "task_added", "event_added", "photo_added" -> _events.emit(ChatEvent.NotebookUpdate(kind = msg.type))
+            "voice_signal" -> {
+                val data = msg.data
+                _events.emit(ChatEvent.VoiceSignal(
+                    type = data?.type ?: "", fromUserId = data?.from ?: "", toUserId = data?.target_user_id ?: "",
+                    sdp = data?.sdp, candidate = data?.candidate, sdpMLineIndex = data?.sdp_mline_index, sdpMid = data?.sdp_mid
+                ))
+            }
             "error" -> _events.emit(ChatEvent.Error(msg.message ?: "Unknown error"))
         }
     }
 
     fun disconnect() {
-        reconnectJob?.cancel()
+        scope.launch { mutex.withLock { disconnectInternal() } }
+    }
+
+    private suspend fun disconnectInternal() {
+        reconnectJob?.cancelAndJoin()
         reconnectJob = null
         currentRoomId = ""
         currentServerId = ""
         currentHostUrl = ""
         _roomUsers.value = emptyList()
-        CoroutineScope(Dispatchers.IO).launch {
-            try { session?.close() } catch (_: Exception) {}
-            _connectionState.value = false
-        }
+        try { session?.close() } catch (_: Exception) {}
+        session = null
+        _connectionState.value = false
     }
 
-    fun sendMessage(sender: String, userId: String, content: String) {
-        CoroutineScope(Dispatchers.IO).launch {
+    fun sendMessage(content: String) {
+        scope.launch {
             try {
-                session?.send(Json.encodeToString(MessagePayload.serializer(), MessagePayload("message", sender, userId, content)))
+                session?.send(JsonConfig.json.encodeToString(MessagePayload.serializer(), MessagePayload("message", content)))
             } catch (_: Exception) {}
         }
     }
 
     fun sendReaction(messageId: String, emoji: String) {
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             try {
-                session?.send(Json.encodeToString(ReactionPayload.serializer(), ReactionPayload("reaction", messageId, emoji)))
+                session?.send(JsonConfig.json.encodeToString(ReactionPayload.serializer(), ReactionPayload("reaction", messageId, emoji)))
             } catch (_: Exception) {}
         }
     }
 
-    fun sendVoiceSignal(type: String, toUserId: String, sdp: String? = null, candidate: String? = null, sdpMLineIndex: Int? = null, sdpMid: String? = null) {
-        CoroutineScope(Dispatchers.IO).launch {
+    fun sendWhisper(targetUserId: String, content: String) {
+        scope.launch {
             try {
-                session?.send(Json.encodeToString(VoicePayload.serializer(), VoicePayload("voice_$type", toUserId, sdp, candidate, sdpMLineIndex, sdpMid)))
+                session?.send(JsonConfig.json.encodeToString(WhisperPayload.serializer(), WhisperPayload("whisper", targetUserId, content)))
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun sendNudge(targetUserId: String) {
+        scope.launch {
+            try {
+                session?.send(JsonConfig.json.encodeToString(NudgePayload.serializer(), NudgePayload("nudge", targetUserId)))
             } catch (_: Exception) {}
         }
     }
 
     @Serializable
-    private data class JoinPayload(val type: String, val user_id: String, val user_name: String, val password: String = "")
+    private data class MessagePayload(val type: String, val content: String)
 
     @Serializable
-    private data class MessagePayload(val type: String, val sender: String, val sender_id: String, val content: String)
+    private data class ReactionPayload(val type: String, val target_id: String, val reaction: String)
 
     @Serializable
-    private data class ReactionPayload(val type: String, val message_id: String, val emoji: String)
+    private data class WhisperPayload(val type: String, val target_user_id: String, val content: String)
 
     @Serializable
-    private data class VoicePayload(
-        val type: String,
-        val to_user_id: String,
+    private data class NudgePayload(val type: String, val target_user_id: String)
+
+    @Serializable
+    private data class VoiceSignalData(
+        val type: String? = null,
+        val from: String? = null,
+        val target_user_id: String? = null,
         val sdp: String? = null,
         val candidate: String? = null,
-        val sdpMLineIndex: Int? = null,
-        val sdpMid: String? = null
+        val sdp_mid: String? = null,
+        val sdp_mline_index: Int? = null
     )
+
+    @Serializable
+    private data class ServerUser(val user_id: String = "", val user_name: String = "")
 
     @Serializable
     private data class ServerMessage(
@@ -218,7 +245,6 @@ object ChatWebSocket {
         val sender: String? = null,
         val sender_id: String? = null,
         val content: String? = null,
-        val message: String? = null,
         val timestamp: String? = null,
         val room_id: String? = null,
         val room_name: String? = null,
@@ -228,14 +254,9 @@ object ChatWebSocket {
         val from_user_id: String? = null,
         val from_user_name: String? = null,
         val to_user_id: String? = null,
-        val message_id: String? = null,
-        val emoji: String? = null,
-        val sdp: String? = null,
-        val candidate: String? = null,
-        val sdpMLineIndex: Int? = null,
-        val sdpMid: String? = null
+        val target_id: String? = null,
+        val reaction: String? = null,
+        val message: String? = null,
+        val data: VoiceSignalData? = null
     )
-
-    @Serializable
-    private data class ServerUser(val user_id: String, val user_name: String)
 }

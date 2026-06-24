@@ -29,21 +29,24 @@
   .btn { width:100%; padding:14px 12px; font-size:1rem; font-weight:600; background:var(--accent); color:var(--accent-text); }
   .btn:active { opacity:0.9; }
   .btn.secondary { background:var(--surface-2); color:var(--text); border:1px solid var(--divider); }
+  .btn.danger { background:var(--danger); color:#fff; }
   .btn.voice { background:var(--voice); color:#fff; }
+  .btn-row { display:flex; gap:8px; }
+  .btn-row .btn { flex:1; }
 
   .list-item { padding:14px 16px; border-bottom:1px solid var(--divider); cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
   .list-item:hover { background:var(--bg); }
   .list-item.active { background:#FFF5F2; border-left:3px solid var(--accent); }
+  .list-item .actions { display:flex; gap:6px; }
+  .list-item .actions button { padding:4px 8px; font-size:0.75rem; background:var(--surface-2); border:1px solid var(--divider); }
   .meta { font-size:0.8rem; color:var(--text-secondary); }
 
   .file-label { display:inline-block; padding:10px 12px; border:1px dashed var(--divider); width:100%; text-align:center; color:var(--text-secondary); margin-bottom:12px; }
 
-  /* Stage */
   #stageWrap { width:100%; height:32vh; max-height:300px; min-height:180px; position:relative; border-bottom:1px solid var(--divider); }
   #stageWrap canvas { display:block; width:100%; height:100%; }
   #stageLabel { position:absolute; bottom:8px; left:12px; right:12px; font-size:0.8rem; color:var(--text-secondary); pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-  /* Messages */
   .messages { flex:1; overflow-y:auto; padding:8px 0 16px; }
   .msg { width:100%; padding:10px 16px; display:flex; flex-direction:column; }
   .msg.own { align-items:flex-end; }
@@ -56,7 +59,6 @@
   .msg.agent .msg-body { background:transparent; border:none; padding-left:0; }
   .sys { text-align:center; font-size:0.75rem; color:var(--text-secondary); padding:6px 16px; }
 
-  /* Input */
   .inputbar { border-top:1px solid var(--divider); background:var(--surface); padding:8px 12px; flex-shrink:0; }
   .quick-chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; }
   .quick-chips button { flex-shrink:0; padding:6px 10px; font-size:0.85rem; background:var(--bg); border:1px solid var(--divider); color:var(--text); }
@@ -64,7 +66,6 @@
   .inputrow input { flex:1; padding:12px; border:1px solid var(--divider); background:var(--bg); font-size:1rem; outline:none; }
   .inputrow input:focus { border-color:var(--accent); }
 
-  /* Sheet / modal */
   .sheet, .modal { position:fixed; inset:0; display:none; z-index:10; }
   .sheet.active, .modal.active { display:flex; }
   .sheet .backdrop, .modal .backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.35); }
@@ -73,8 +74,8 @@
   .modal .panel { position:absolute; left:16px; right:16px; top:50%; transform:translateY(-50%) scale(0.96); opacity:0; background:var(--surface); padding:20px; border:1px solid var(--divider); max-height:84vh; overflow-y:auto; transition:transform 0.2s ease, opacity 0.2s ease; }
   .modal.active .panel { transform:translateY(-50%) scale(1); opacity:1; }
   .sheet-header { height:56px; border-bottom:1px solid var(--divider); display:flex; align-items:center; justify-content:space-between; padding:0 12px; }
-  .tabs { display:flex; border-bottom:1px solid var(--divider); }
-  .tabs button { flex:1; padding:12px; font-size:0.9rem; font-weight:500; color:var(--text-secondary); border-bottom:2px solid transparent; background:none; }
+  .tabs { display:flex; border-bottom:1px solid var(--divider); overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tabs button { flex:0 0 auto; min-width:80px; padding:12px; font-size:0.9rem; font-weight:500; color:var(--text-secondary); border-bottom:2px solid transparent; background:none; }
   .tabs button.active { color:var(--accent); border-color:var(--accent); }
   .sheet-body { flex:1; overflow-y:auto; }
 
@@ -83,21 +84,26 @@
 
   .setting-row { padding:12px 0; border-bottom:1px solid var(--divider); }
   .setting-row label { display:block; font-size:0.85rem; color:var(--text-secondary); margin-bottom:6px; }
+  .setting-row .perms { display:flex; flex-wrap:wrap; gap:6px; }
+  .setting-row .perms label { display:inline-flex; align-items:center; gap:4px; font-size:0.8rem; color:var(--text); margin:0; }
 
-  /* Reaction menu */
   .reaction-menu { position:fixed; background:var(--surface); border:1px solid var(--divider); display:flex; gap:4px; padding:4px; z-index:100; }
   .reaction-menu button { padding:6px 10px; font-size:0.85rem; background:var(--bg); border:1px solid var(--divider); }
 
-  /* Voice UI */
   .voice-participants { display:flex; flex-wrap:wrap; gap:12px; padding:16px; justify-content:center; }
   .voice-participant { width:80px; text-align:center; }
   .voice-avatar { width:64px; height:64px; border-radius:50%; background:var(--surface-2); margin:0 auto 6px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; }
   .voice-avatar.speaking { box-shadow:0 0 0 3px var(--voice); }
 
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#222; color:#fff; padding:10px 16px; border-radius:4px; font-size:0.85rem; z-index:200; opacity:0; transition:opacity 0.3s; }
+  .toast.show { opacity:1; }
+  .bottomnav { display:flex; border-top:1px solid var(--divider); background:var(--surface); flex-shrink:0; }
+  .bottomnav button { flex:1; padding:12px; font-size:0.85rem; color:var(--text-secondary); background:none; border-bottom:2px solid transparent; }
+  .bottomnav button.active { color:var(--accent); border-color:var(--accent); font-weight:600; }
+
   @media (prefers-color-scheme: dark) {
     :root { --bg:#121212; --surface:#1E1E1E; --surface-2:#2A2A2A; --divider:#3A3A3A; --text:#F2F2F2; --text-secondary:#A8A29E; }
     .msg.agent { background:#1A1816; }
-    .server-row.active { background:#2A1E1A; }
   }
 </style>
 <script type="importmap">
@@ -149,7 +155,7 @@
     </div>
   </div>
 
-  <!-- SERVERS (on a host) -->
+  <!-- SERVERS -->
   <div id="serversScreen" class="screen">
     <div class="appbar">
       <button class="iconbtn" onclick="window.showHosts()">戻る</button>
@@ -170,12 +176,13 @@
     <div class="content" style="padding:16px;">
       <input id="newServerName" class="field" placeholder="サーバー名">
       <input id="newServerPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
+      <input id="newServerOwnerName" class="field" placeholder="あなたの名前" value="Webユーザー">
       <button class="btn" onclick="window.createServer()">作成</button>
       <button class="btn secondary" style="margin-top:8px;" onclick="window.showServers()">キャンセル</button>
     </div>
   </div>
 
-  <!-- CHANNELS (in a server) -->
+  <!-- CHANNELS -->
   <div id="channelsScreen" class="screen">
     <div class="appbar">
       <button class="iconbtn" onclick="window.showServers()">戻る</button>
@@ -183,7 +190,7 @@
         <div id="channelsServerName" style="font-size:0.95rem;font-weight:600;">サーバー</div>
         <div class="meta" id="channelsServerMeta">0メンバー</div>
       </div>
-      <button class="iconbtn" onclick="window.showServerSettings()">設定</button>
+      <button class="iconbtn" onclick="window.showServerSettings()" title="サーバー設定">歯車</button>
     </div>
     <div class="content">
       <div style="padding:12px 16px;">
@@ -197,10 +204,10 @@
     </div>
   </div>
 
-  <!-- CREATE CHANNEL -->
+  <!-- CREATE/EDIT CHANNEL -->
   <div id="createChannelScreen" class="screen">
     <div class="appbar">
-      <h1>チャンネル作成</h1>
+      <h1 id="createChannelTitle">チャンネル作成</h1>
       <button class="iconbtn" onclick="window.showChannels()">閉じる</button>
     </div>
     <div class="content" style="padding:16px;">
@@ -209,8 +216,13 @@
         <option value="text">テキスト</option>
         <option value="voice">ボイス</option>
       </select>
-      <input id="newChannelPassword" class="field" placeholder="パスワード（空欄で公開）" type="password">
-      <button class="btn" onclick="window.createChannel()">作成</button>
+      <select id="newChannelVisibility" class="field">
+        <option value="public">公開</option>
+        <option value="private">非公開（招待制）</option>
+      </select>
+      <input id="newChannelPassword" class="field" placeholder="入室パスワード（空欄でなし）" type="password">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.9rem;"><input type="checkbox" id="newChannelAi" checked> AI応答を有効にする</label>
+      <button class="btn" id="createChannelBtn" onclick="window.createChannel()">作成</button>
       <button class="btn secondary" style="margin-top:8px;" onclick="window.showChannels()">キャンセル</button>
     </div>
   </div>
@@ -218,16 +230,12 @@
   <!-- TEXT CHAT -->
   <div id="chatScreen" class="screen">
     <div class="appbar">
-      <button class="iconbtn" onclick="window.showChannels()">戻る</button>
+      <button class="iconbtn" onclick="window.leaveChannel()">戻る</button>
       <div>
         <div id="chatChannelTitle" style="font-size:0.95rem;font-weight:600;">チャンネル</div>
         <div class="meta" id="chatMeta">0人在室</div>
       </div>
-      <div style="display:flex;gap:4px;">
-        <button class="iconbtn" onclick="window.showNotebook()">ノート</button>
-        <button class="iconbtn" onclick="window.showProfile()">設定</button>
-        <button class="iconbtn" onclick="window.leaveChannel()">退出</button>
-      </div>
+      <button class="iconbtn" onclick="window.leaveChannel()" title="退出">退出</button>
     </div>
     <div id="stageWrap">
       <canvas id="vrmCanvas"></canvas>
@@ -241,6 +249,11 @@
         <input id="messageInput" placeholder="メッセージ…" onkeydown="if(event.key==='Enter') window.sendMessage()">
         <button class="iconbtn" onclick="window.sendMessage()" title="送信" style="background:var(--accent);color:#fff;">送信</button>
       </div>
+    </div>
+    <div class="bottomnav">
+      <button class="active" onclick="window.switchChatTab('chat')">メッセージ</button>
+      <button onclick="window.showNotebook()">ノート</button>
+      <button onclick="window.showProfile()">プロフィール</button>
     </div>
   </div>
 
@@ -276,6 +289,7 @@
       <button class="active" data-tab="notes" onclick="window.setTab('notes')">メモ</button>
       <button data-tab="tasks" onclick="window.setTab('tasks')">お手伝い</button>
       <button data-tab="events" onclick="window.setTab('events')">予定</button>
+      <button data-tab="photos" onclick="window.setTab('photos')">写真</button>
     </div>
     <div class="sheet-body" id="notebookBody"></div>
   </div>
@@ -337,10 +351,19 @@
       <h2>サーバー設定</h2>
       <button class="iconbtn" onclick="window.hideServerSettings()">閉じる</button>
     </div>
-    <div id="serverSettingsBody"></div>
-    <button class="btn secondary" style="margin-top:8px;" onclick="window.hideServerSettings()">閉じる</button>
+    <div class="tabs">
+      <button class="active" data-tab="overview" onclick="window.setSettingTab('overview')">概要</button>
+      <button data-tab="members" onclick="window.setSettingTab('members')">メンバー</button>
+      <button data-tab="roles" onclick="window.setSettingTab('roles')">役割</button>
+      <button data-tab="invites" onclick="window.setSettingTab('invites')">招待</button>
+      <button data-tab="bots" onclick="window.setSettingTab('bots')">AI</button>
+      <button data-tab="knowledge" onclick="window.setSettingTab('knowledge')">知識</button>
+    </div>
+    <div class="sheet-body" id="serverSettingsBody"></div>
   </div>
 </div>
+
+<div id="toast" class="toast"></div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -360,18 +383,38 @@ let peerConnections = {};
 let localStream = null;
 let isMuted = false;
 let currentTab = 'notes';
+let currentSettingTab = 'overview';
+let voicePollInterval = null;
+let serverSettingsCache = null;
 
 function $(id){ return document.getElementById(id); }
 function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 function API(){ return activeHost ? activeHost.url : location.origin; }
 function serverPath(){ return activeServer ? `/s/${activeServer.id}` : ''; }
+function authQuery(){ return `user_id=${encodeURIComponent(myId)}&user_name=${encodeURIComponent(getProfile().name)}`; }
 
 function getProfile(){
-  const key = `profile_${activeServer?.id||'default'}`;
+  const key = `profile_${activeServer?.id||'default'}_${activeHost?.id||'local'}`;
   const raw = localStorage.getItem(key);
   return raw ? JSON.parse(raw) : {name:'Webユーザー', vrmUrl:'', quick:'おはよう,ただいま,おかえり,ありがとう,がんばって', speaker:58, tts:false, quiet:false};
 }
-function setProfile(p){ localStorage.setItem(`profile_${activeServer?.id||'default'}`, JSON.stringify(p)); }
+function setProfile(p){ localStorage.setItem(`profile_${activeServer?.id||'default'}_${activeHost?.id||'local'}`, JSON.stringify(p)); }
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+
+async function apiFetch(path, options={}){
+  const sep = path.includes('?') ? '&' : '?';
+  const url = API() + path + sep + authQuery();
+  try{
+    const res = await fetch(url, options);
+    if(!res.ok){
+      const text = await res.text();
+      try{ const j=JSON.parse(text); if(j.detail||j.error) toast(j.detail||j.error); }catch(e){ toast('エラー: '+res.status); }
+      throw new Error(res.statusText);
+    }
+    return res;
+  }catch(e){ throw e; }
+}
 
 // --- Three.js ---
 const stage = $('stageWrap');
@@ -384,7 +427,7 @@ renderer.setSize(stage.clientWidth, stage.clientHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setClearColor(0x000000,0);
 scene.add(new THREE.AmbientLight(0xffffff,1.0));
-const key = new THREE.DirectionalLight(0xffffff,1.2); key.position.set(1,1,1); scene.add(key);
+const keyL = new THREE.DirectionalLight(0xffffff,1.2); keyL.position.set(1,1,1); scene.add(keyL);
 const back = new THREE.DirectionalLight(0xffffff,0.5); back.position.set(-1,0.5,-1); scene.add(back);
 
 let vrm=null, clock=new THREE.Clock(), currentExpression='neutral', blinkTimer=0, isBlinking=false;
@@ -435,7 +478,6 @@ window.addEventListener('resize',()=>{
 function hideAllScreens(){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); }
 function show(id){ hideAllScreens(); $(id).classList.add('active'); }
 
-// Expose navigation to window
 window.showHosts = function(){ renderHosts(); show('hostsScreen'); };
 window.showAddHost = function(){ $('addHostUrl').value='http://localhost:8000'; $('addHostName').value='My Host'; $('scanResults').innerHTML=''; show('addHostScreen'); };
 window.showServers = function(){ renderServers(); show('serversScreen'); };
@@ -443,7 +485,29 @@ window.showChannels = function(){ renderChannels(); show('channelsScreen'); };
 window.showChat = function(){ show('chatScreen'); };
 window.showVoice = function(){ show('voiceScreen'); };
 window.showCreateServer = function(){ $('newServerName').value=''; $('newServerPassword').value=''; show('createServerScreen'); };
-window.showCreateChannel = function(){ $('newChannelName').value=''; $('newChannelType').value='text'; $('newChannelPassword').value=''; show('createChannelScreen'); };
+
+let editingChannelId = null;
+window.onCreateChannelClick = function(){
+  const canManage = activeServer && (activeServer.permissions?.includes('manage_channels') || activeServer.my_role==='owner');
+  if(!canManage){ toast('チャンネル作成の権限がありません'); return; }
+  window.showCreateChannel();
+};
+window.showCreateChannel = function(){
+  editingChannelId = null;
+  $('createChannelTitle').textContent = 'チャンネル作成';
+  $('newChannelName').value=''; $('newChannelType').value='text'; $('newChannelVisibility').value='public'; $('newChannelPassword').value=''; $('newChannelAi').checked=true;
+  $('createChannelBtn').textContent='作成'; $('createChannelBtn').onclick=window.createChannel;
+  show('createChannelScreen');
+};
+window.showEditChannel = function(cid){
+  const ch = serverSettingsCache?.channels?.find(c=>c.id===cid);
+  if(!ch) return;
+  editingChannelId = cid;
+  $('createChannelTitle').textContent = 'チャンネル編集';
+  $('newChannelName').value=ch.name; $('newChannelType').value=ch.type; $('newChannelVisibility').value=ch.visibility||'public'; $('newChannelPassword').value=''; $('newChannelAi').checked=ch.ai_enabled!==false;
+  $('createChannelBtn').textContent='保存'; $('createChannelBtn').onclick=window.saveEditChannel;
+  show('createChannelScreen');
+};
 
 // Hosts
 function renderHosts(){
@@ -451,7 +515,7 @@ function renderHosts(){
   if(!hosts.length){ el.innerHTML='<div class="list-item"><div class="meta">ホストがありません。追加してください。</div></div>'; return; }
   el.innerHTML = hosts.map(h=>`<div class="list-item" onclick="window.selectHost('${esc(h.id)}')">
     <div><div style="font-weight:600;">${esc(h.name)}</div><div class="meta">${esc(h.url)}</div></div>
-    <div class="meta">選択</div>
+    <div class="actions"><button onclick="event.stopPropagation();window.deleteHost('${esc(h.id)}')">削除</button></div>
   </div>`).join('');
 }
 
@@ -470,25 +534,39 @@ window.addHost = function(){
   localStorage.setItem('famichibi_hosts', JSON.stringify(hosts));
   showHosts();
 };
+window.deleteHost = function(hid){
+  if(!confirm('ホストを削除しますか？')) return;
+  hosts = hosts.filter(h=>h.id!==hid);
+  localStorage.setItem('famichibi_hosts', JSON.stringify(hosts));
+  renderHosts();
+};
 
 window.scanLocal = async function(){
   const results=$('scanResults');
   results.textContent='検索中...';
   const found=[];
-  const bases=['192.168.1.','192.168.0.','10.0.2.'];
-  for(const base of bases){
-    for(let i=1;i<=20;i++){
-      try{
-        const ctrl=new AbortController();
-        const t=setTimeout(()=>ctrl.abort(),1500);
-        const res=await fetch(`http://${base}${i}:8000/discover`, {mode:'cors', signal:ctrl.signal});
-        clearTimeout(t);
-        if(res.ok){
-          const data=await res.json();
-          found.push({url:`http://${base}${i}:8000`, name:data.name||'FamiChibi'});
-        }
-      }catch(e){}
-    }
+  const bases=['192.168.1.','192.168.0.','10.0.0.'];
+  const ips=[];
+  for(const base of bases) for(let i=1;i<=254;i++) ips.push(base+i);
+  const check = async (ip)=>{
+    try{
+      const ctrl=new AbortController();
+      const t=setTimeout(()=>ctrl.abort(),900);
+      const res=await fetch(`http://${ip}:8000/discover`, {mode:'cors', signal:ctrl.signal});
+      clearTimeout(t);
+      if(res.ok){
+        const data=await res.json();
+        return {url:`http://${ip}:8000`, name:data.name||'FamiChibi'};
+      }
+    }catch(e){}
+    return null;
+  };
+  const batch=64;
+  for(let i=0;i<ips.length;i+=batch){
+    const slice=ips.slice(i,i+batch);
+    const batchResults=await Promise.all(slice.map(check));
+    batchResults.forEach(r=>{ if(r) found.push(r); });
+    results.textContent=`検索中... ${Math.min(i+batch,ips.length)}/${ips.length}`;
   }
   if(!found.length){ results.textContent='見つかりませんでした'; return; }
   results.innerHTML=found.map(s=>`<div class="list-item" onclick="window.addFoundHost('${esc(s.url)}','${esc(s.name)}')" style="margin-top:4px;">
@@ -507,7 +585,7 @@ async function renderServers(){
   if(!activeHost){ showHosts(); return; }
   $('serversHostName').textContent = activeHost.name;
   try{
-    const list = await (await fetch(API()+'/servers')).json();
+    const list = await (await apiFetch('/servers')).json();
     const el=$('serverList');
     if(!list.length){ el.innerHTML='<div class="list-item"><div class="meta">サーバーがありません</div></div>'; return; }
     el.innerHTML = list.map(s=>`<div class="list-item" onclick="window.selectServer('${esc(s.id)}')">
@@ -517,19 +595,38 @@ async function renderServers(){
   }catch(e){ $('serverList').innerHTML='<div class="list-item"><div class="meta">接続できません</div></div>'; }
 }
 
-window.selectServer = function(sid){
+window.selectServer = async function(sid){
   activeServer = {id:sid};
-  showChannels();
+  try{
+    const info = await (await apiFetch(serverPath())).json();
+    if(!info.my_role && info.has_password){
+      const pw = prompt('パスワードを入力してください')||'';
+      const fd = new FormData();
+      fd.append('password', pw); fd.append('user_id', myId); fd.append('user_name', getProfile().name);
+      const res = await apiFetch(serverPath()+'/join', {method:'POST', body:fd});
+      const jr = await res.json();
+      if(jr.error){ activeServer=null; alert(jr.error); return; }
+      toast('サーバーに参加しました');
+    } else if(!info.my_role){
+      const fd = new FormData();
+      fd.append('user_id', myId); fd.append('user_name', getProfile().name);
+      await apiFetch(serverPath()+'/join', {method:'POST', body:fd});
+    }
+    activeServer.name = info.name;
+    showChannels();
+  }catch(e){ activeServer=null; alert('サーバーに接続できません'); }
 };
 
 window.createServer = async function(){
   const name=$('newServerName').value.trim();
   if(!name) return alert('名前を入力してください');
-  const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value);
+  const fd=new FormData(); fd.append('name',name); fd.append('password',$('newServerPassword').value); fd.append('owner_id',myId); fd.append('owner_name',$('newServerOwnerName').value.trim()||'Webユーザー');
   try{
-    const res=await (await fetch(API()+'/servers',{method:'POST',body:fd})).json();
-    if(res.error) return alert(res.error);
-    activeServer={id:res.id};
+    const res=await apiFetch('/servers',{method:'POST',body:fd});
+    const data=await res.json();
+    if(data.error) return alert(data.error);
+    localStorage.setItem('famichibi_owner_'+data.id, myId);
+    activeServer={id:data.id, name:name};
     showChannels();
   }catch(e){ alert('作成に失敗しました'); }
 };
@@ -538,22 +635,27 @@ window.createServer = async function(){
 async function renderChannels(){
   if(!activeHost || !activeServer){ showServers(); return; }
   try{
-    const info = await (await fetch(API()+serverPath())).json();
+    const info = await (await apiFetch(serverPath())).json();
     $('channelsServerName').textContent = info.name;
-    $('channelsServerMeta').textContent = (info.member_count||0) + 'メンバー · ' + info.channels.length + 'チャンネル';
+    $('channelsServerMeta').textContent = (info.member_count||0) + 'メンバー · ' + (info.channels?info.channels.length:0) + 'チャンネル · ' + (info.my_role||'guest');
     activeServer.name = info.name;
+    activeServer.my_role = info.my_role;
+    activeServer.permissions = info.permissions || [];
+    activeServer.channels = info.channels || [];
+    serverSettingsCache = info;
     const textList=$('textChannelList');
     const voiceList=$('voiceChannelList');
-    const textChs = info.channels.filter(c=>c.type!=='voice');
-    const voiceChs = info.channels.filter(c=>c.type==='voice');
-    textList.innerHTML = textChs.map(c=>`<div class="list-item" onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')">
-      <div><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
-      <div class="meta">参加</div>
-    </div>`).join('') + `<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`;
-    voiceList.innerHTML = voiceChs.map(c=>`<div class="list-item" onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')">
-      <div><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
-      <div class="meta">参加</div>
-    </div>`).join('') + `<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`;
+    const textChs = (info.channels||[]).filter(c=>c.type!=='voice');
+    const voiceChs = (info.channels||[]).filter(c=>c.type==='voice');
+    const canManage = info.permissions?.includes('manage_channels') || info.my_role==='owner';
+    textList.innerHTML = textChs.map(c=>`<div class="list-item">
+      <div onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')"><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.visibility==='private'?'非公開 · ':''}${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
+      ${canManage?`<div class="actions"><button onclick="event.stopPropagation();window.showEditChannel('${esc(c.id)}')">編集</button><button onclick="event.stopPropagation();window.deleteChannel('${esc(c.id)}')">削除</button></div>`:''}
+    </div>`).join('') + (canManage?`<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`:'');
+    voiceList.innerHTML = voiceChs.map(c=>`<div class="list-item">
+      <div onclick="window.joinChannel('${esc(c.id)}','${esc(c.name)}','${c.type}','${c.has_password}')"><div style="font-weight:600;">${esc(c.name)}</div><div class="meta">${c.visibility==='private'?'非公開 · ':''}${c.has_password?'鍵付き · ':''}${c.user_count||0}人在室</div></div>
+      ${canManage?`<div class="actions"><button onclick="event.stopPropagation();window.showEditChannel('${esc(c.id)}')">編集</button><button onclick="event.stopPropagation();window.deleteChannel('${esc(c.id)}')">削除</button></div>`:''}
+    </div>`).join('') + (canManage?`<div class="list-item" onclick="window.showCreateChannel()"><div style="font-weight:600;color:var(--accent);">＋ チャンネル作成</div></div>`:'');
   }catch(e){ $('textChannelList').innerHTML='<div class="list-item"><div class="meta">接続できません</div></div>'; $('voiceChannelList').innerHTML=''; }
 }
 
@@ -561,19 +663,11 @@ window.joinChannel = async function(cid, cname, ctype, hasPw){
   activeChannel={id:cid,name:cname,type:ctype};
   const profile=getProfile();
   let password='';
-  if(hasPw==='true' || hasPw===true){
-    password=prompt('パスワードを入力してください')||'';
-  }
-  try{
-    const fd=new FormData();
-    fd.append('user_id',myId); fd.append('user_name',profile.name); fd.append('password',password);
-    const res=await fetch(API()+serverPath()+'/channels/'+cid+'/join',{method:'POST',body:fd});
-    if(!res.ok){ const data=await res.json(); alert(data.detail||'参加に失敗しました'); return; }
-  }catch(e){ alert('参加に失敗しました'); return; }
+  if(hasPw==='true' || hasPw===true) password=prompt('パスワードを入力してください')||'';
   if(ctype==='voice'){
-    joinVoice(cid);
+    await joinVoice(cid, password);
   }else{
-    connectWs(cid, password);
+    await connectWs(cid, password);
   }
 };
 
@@ -581,42 +675,60 @@ window.createChannel = async function(){
   const name=$('newChannelName').value.trim();
   const type=$('newChannelType').value;
   if(!name) return alert('名前を入力してください');
-  const fd=new FormData(); fd.append('name',name); fd.append('channel_type',type); fd.append('password',$('newChannelPassword').value);
+  const fd=new FormData();
+  fd.append('name',name); fd.append('channel_type',type); fd.append('password',$('newChannelPassword').value); fd.append('visibility',$('newChannelVisibility').value); fd.append('ai_enabled',$('newChannelAi').checked?'true':'false');
   try{
-    await fetch(API()+serverPath()+'/channels',{method:'POST',body:fd});
+    await apiFetch(serverPath()+'/channels',{method:'POST',body:fd});
     showChannels();
   }catch(e){ alert('作成に失敗しました'); }
 };
 
+window.saveEditChannel = async function(){
+  if(!editingChannelId) return;
+  const name=$('newChannelName').value.trim();
+  if(!name) return alert('名前を入力してください');
+  const fd=new FormData();
+  fd.append('name',name); fd.append('visibility',$('newChannelVisibility').value); fd.append('password',$('newChannelPassword').value); fd.append('ai_enabled',$('newChannelAi').checked?'true':'false');
+  if($('newChannelPassword').value==='') fd.append('password','');
+  try{
+    await apiFetch(serverPath()+'/channels/'+editingChannelId,{method:'PUT',body:fd});
+    showChannels();
+  }catch(e){ alert('保存に失敗しました'); }
+};
+
+window.deleteChannel = async function(cid){
+  if(!confirm('チャンネルを削除しますか？')) return;
+  try{ await apiFetch(serverPath()+'/channels/'+cid,{method:'DELETE'}); renderChannels(); }catch(e){ alert('削除に失敗しました'); }
+};
+
 // WebSocket (text)
-function connectWs(cid, password){
+async function connectWs(cid, password){
   if(ws){ ws.close(); ws=null; }
+  $('messages').innerHTML='';
+  $('chatChannelTitle').textContent = (activeServer?activeServer.name:'') + ' / ' + (activeChannel?activeChannel.name:'');
   const wUrl = API().replace('http://','ws://').replace('https://','wss://');
-  ws = new WebSocket(wUrl+'/ws/'+activeServer.id+'/'+cid);
-  ws.onopen = ()=> ws.send(JSON.stringify({type:'join',user_id:myId,user_name:getProfile().name,password}));
+  const q = authQuery() + (password?'&password='+encodeURIComponent(password):'');
+  ws = new WebSocket(wUrl+'/ws/'+activeServer.id+'/'+cid+'?'+q);
+  ws.onopen = ()=>{
+    $('chatMeta').textContent='接続済み';
+    showChat();
+    loadHistory();
+    loadNotebook();
+    loadQuickPhrases();
+    const profile=getProfile(); loadVrm(profile.vrmUrl);
+  };
   ws.onmessage = e=> handleMsg(JSON.parse(e.data));
-  ws.onerror = ()=> alert('接続エラー');
+  ws.onerror = ()=>{ toast('接続エラー'); };
   ws.onclose = ()=>{ activeChannel=null; showChannels(); };
 }
 
 function handleMsg(m){
-  if(m.type==='joined'){
-    activeChannel.name=m.room_name;
-    $('chatChannelTitle').textContent = (activeServer?activeServer.name:'') + ' / ' + activeChannel.name;
-    $('chatMeta').textContent = (m.users?m.users.length:0)+'人在室';
-    show('chatScreen');
-    loadHistory();
-    loadNotebook();
-    loadQuickPhrases();
-    const profile=getProfile();
-    loadVrm(profile.vrmUrl);
-  } else if(m.type==='user_joined' || m.type==='user_left'){
-    $('chatMeta').textContent = (m.users?m.users.length:0)+'人在室';
-    addSys(m.user_name + (m.type==='user_joined'?'さんが参加しました':'さんが退出しました'));
-  } else if(m.type==='user' || m.type==='agent' || m.type==='proactive'){
+  if(m.type==='system'){
+    addSys(m.content);
+  } else if(m.type==='chat' || m.type==='agent'){
     addMsg(m);
     const profile=getProfile();
-    if((m.type==='agent'||m.type==='proactive') && profile.tts && !isQuietHours()) speak(m.content);
+    if(m.type==='agent' && profile.tts && !isQuietHours()) speak(m.content);
     if(m.type==='agent'){ setExpression('happy',1.0); setTimeout(resetExpression,1500); }
   } else if(m.type==='whisper'){
     addMsg({sender:m.from_user_name+'（ささやき）', sender_id:m.from_user_id, content:m.content, type:'whisper'});
@@ -624,16 +736,16 @@ function handleMsg(m){
     nudgeScreen();
     addSys(m.from_user_name + 'さんがあなたを呼んでいます');
   } else if(m.type==='reaction'){
-    addReactionToMessage(m.message_id, m.emoji);
-  } else if(m.type==='note_added'||m.type==='task_added'||m.type==='event_added'||m.type==='photo_added'){
-    loadNotebook();
-  } else if(m.type==='error'){ alert(m.message); }
+    addReactionToMessage(m.target_id, m.reaction);
+  } else if(m.type==='voice_signal'){
+    handleVoiceSignalData(m.data);
+  }
 }
 
 async function loadHistory(){
   if(!activeChannel) return;
   try{
-    const msgs = await (await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/messages?limit=100')).json();
+    const msgs = await (await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/messages?limit=100')).json();
     $('messages').innerHTML='';
     msgs.forEach(addMsg);
   }catch(e){}
@@ -641,14 +753,14 @@ async function loadHistory(){
 
 function addMsg(m){
   const profile=getProfile();
-  const own = m.sender_id===myId || m.sender===profile.name;
+  const own = m.sender_id===myId;
   const div=document.createElement('div');
   div.className='msg ' + (own?'own':(m.type==='agent'||m.type==='proactive'?'agent':'other'));
   div.dataset.id = m.id||'';
   const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
   div.innerHTML = `<div class="msg-name">${esc(m.sender||'')} ${time?'<span style="font-size:0.7rem;color:var(--text-secondary)">'+time+'</span>':''}</div>
     <div class="msg-body" oncontextmenu="return window.showReactionMenu(event,'${esc(m.id||'')}')">${esc(m.content||'')}</div>
-    <div class="reactions" id="reactions-${esc(m.id||'')}"></div>`;
+    <div class="reactions" id="reactions-${esc(m.id||'')}" style="margin-top:4px;"></div>`;
   $('messages').appendChild(div);
   $('messages').scrollTop = $('messages').scrollHeight;
 }
@@ -668,10 +780,7 @@ function addReactionToMessage(mid, emoji){
 window.sendMessage = function(){
   const t=$('messageInput').value.trim();
   if(!t || !ws || ws.readyState!==WebSocket.OPEN) return;
-  const profile=getProfile();
-  const msg={id:'local_'+Date.now(), sender:profile.name, sender_id:myId, content:t, type:'user', timestamp:new Date().toISOString()};
-  addMsg(msg);
-  ws.send(JSON.stringify({type:'message', sender:profile.name, sender_id:myId, content:t}));
+  ws.send(JSON.stringify({type:'message', content:t}));
   $('messageInput').value='';
 };
 
@@ -688,7 +797,7 @@ window.showReactionMenu = function(e,mid){
   menu.style.left=e.clientX+'px'; menu.style.top=e.clientY+'px';
   labels.forEach(label=>{
     const b=document.createElement('button'); b.textContent=label;
-    b.onclick=()=>{ if(ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:'reaction', message_id:mid, emoji:label})); } menu.remove(); };
+    b.onclick=()=>{ if(ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:'reaction', target_id:mid, reaction:label})); } menu.remove(); };
     menu.appendChild(b);
   });
   document.body.appendChild(menu);
@@ -720,9 +829,7 @@ function speak(text){
         const a = new Audio(url);
         a.play().catch(()=>fallbackTTS(text));
       }).catch(()=>fallbackTTS(text));
-  } else {
-    fallbackTTS(text);
-  }
+  } else { fallbackTTS(text); }
 }
 
 function fallbackTTS(text){
@@ -756,54 +863,40 @@ function nudgeScreen(){
   setTimeout(()=>document.body.style.transform='none',240);
 }
 
-// WebRTC Voice
-async function joinVoice(cid){
+// WebRTC Voice (server-polling + REST signaling)
+async function joinVoice(cid, password){
   activeChannel={id:cid,name:activeChannel?.name||'Voice',type:'voice'};
   show('voiceScreen');
   $('voiceChannelTitle').textContent = activeChannel.name;
   try{
     localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
     const profile=getProfile();
-    const fd=new FormData(); fd.append('user_id',myId); fd.append('user_name',profile.name);
-    await fetch(API()+serverPath()+'/channels/'+cid+'/voice/join',{method:'POST',body:fd});
-    // Connect WebSocket for signaling
-    const wUrl = API().replace('http://','ws://').replace('https://','wss://');
-    ws = new WebSocket(wUrl+'/ws/'+activeServer.id+'/'+cid);
-    ws.onopen = ()=> ws.send(JSON.stringify({type:'join',user_id:myId,user_name:profile.name}));
-    ws.onmessage = e=> handleVoiceSignal(JSON.parse(e.data));
-    ws.onclose = ()=>{ leaveVoiceCleanup(); };
-    updateVoiceUI([{user_id:myId, user_name:profile.name}]);
+    const fd=new FormData(); if(password) fd.append('password',password);
+    const res = await apiFetch(serverPath()+'/channels/'+cid+'/voice/join',{method:'POST',body:fd});
+    const data = await res.json();
+    updateVoiceParticipants(data.users);
+    // Start polling for voice signals
+    startVoicePoll(cid);
+    // Create offers to existing users
+    (data.users||[]).forEach(u=>{ if(u.user_id!==myId) createPeerConnection(u.user_id, true); });
   }catch(e){ alert('ボイスチャンネルに参加できません: '+e.message); showChannels(); }
 }
 
-function handleVoiceSignal(m){
-  if(m.type==='voice_user_joined'){
-    // New user joined, create offer
-    const pid = m.user_id;
-    if(pid===myId) return;
-    createPeerConnection(pid, true);
-  }else if(m.type==='voice_user_left'){
-    const pid=m.user_id;
-    if(peerConnections[pid]){ peerConnections[pid].close(); delete peerConnections[pid]; }
-    updateVoiceParticipants();
-  }else if(m.type==='voice_offer'){
-    handleOffer(m.from_user_id, m.sdp);
-  }else if(m.type==='voice_answer'){
-    handleAnswer(m.from_user_id, m.sdp);
-  }else if(m.type==='voice_ice'){
-    handleIce(m.from_user_id, m.candidate, m.sdpMLineIndex, m.sdpMid);
-  }else if(m.type==='joined'){
-    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
-    updateVoiceUI(m.users);
-    // Create offers to all existing users
-    (m.users||[]).forEach(u=>{ if(u.user_id!==myId) createPeerConnection(u.user_id, true); });
-  }else if(m.type==='user_joined'){
-    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
-    updateVoiceUI(m.users);
-  }else if(m.type==='user_left'){
-    $('voiceMeta').textContent = (m.users?m.users.length:0)+'人在室';
-    updateVoiceUI(m.users);
-  }
+function startVoicePoll(cid){
+  if(voicePollInterval) clearInterval(voicePollInterval);
+  voicePollInterval = setInterval(async ()=>{
+    try{
+      const signal = await (await apiFetch(serverPath()+'/channels/'+cid+'/voice/poll')).json();
+      if(signal && signal.type) handleVoiceSignalData(signal);
+    }catch(e){}
+  }, 1000);
+}
+
+function handleVoiceSignalData(s){
+  if(!s || !s.type) return;
+  if(s.type==='offer') handleOffer(s.from, s.sdp);
+  else if(s.type==='answer') handleAnswer(s.from, s.sdp);
+  else if(s.type==='ice') handleIce(s.from, s.candidate, s.sdp_mid, s.sdp_mline_index);
 }
 
 async function createPeerConnection(pid, isInitiator){
@@ -812,24 +905,22 @@ async function createPeerConnection(pid, isInitiator){
   peerConnections[pid] = pc;
   localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
   pc.ontrack = (e)=>{
-    // Remote audio track received
-    const audio = document.createElement('audio');
+    let audio = document.getElementById('audio-'+pid);
+    if(!audio){ audio = document.createElement('audio'); audio.id='audio-'+pid; audio.autoplay=true; document.body.appendChild(audio); }
     audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    audio.id = 'audio-'+pid;
-    document.body.appendChild(audio);
   };
-  pc.onicecandidate = (e)=>{
-    if(e.candidate && ws && ws.readyState===WebSocket.OPEN){
-      ws.send(JSON.stringify({type:'voice_ice', to_user_id:pid, candidate:e.candidate.candidate, sdpMLineIndex:e.candidate.sdpMLineIndex, sdpMid:e.candidate.sdpMid}));
+  pc.onicecandidate = async (e)=>{
+    if(e.candidate){
+      const fd=new FormData();
+      fd.append('target_user_id',pid); fd.append('candidate',e.candidate.candidate); fd.append('sdp_mid',e.candidate.sdpMid||''); fd.append('sdp_mline_index',e.candidate.sdpMLineIndex||0);
+      await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/voice/ice',{method:'POST',body:fd});
     }
   };
   if(isInitiator){
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    if(ws && ws.readyState===WebSocket.OPEN){
-      ws.send(JSON.stringify({type:'voice_offer', to_user_id:pid, sdp:offer.sdp}));
-    }
+    const fd=new FormData(); fd.append('target_user_id',pid); fd.append('sdp',offer.sdp);
+    await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/voice/offer',{method:'POST',body:fd});
   }
 }
 
@@ -838,23 +929,22 @@ async function handleOffer(pid, sdp){
   peerConnections[pid] = pc;
   localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
   pc.ontrack = (e)=>{
-    const audio = document.createElement('audio');
+    let audio = document.getElementById('audio-'+pid);
+    if(!audio){ audio = document.createElement('audio'); audio.id='audio-'+pid; audio.autoplay=true; document.body.appendChild(audio); }
     audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    audio.id = 'audio-'+pid;
-    document.body.appendChild(audio);
   };
-  pc.onicecandidate = (e)=>{
-    if(e.candidate && ws && ws.readyState===WebSocket.OPEN){
-      ws.send(JSON.stringify({type:'voice_ice', to_user_id:pid, candidate:e.candidate.candidate, sdpMLineIndex:e.candidate.sdpMLineIndex, sdpMid:e.candidate.sdpMid}));
+  pc.onicecandidate = async (e)=>{
+    if(e.candidate){
+      const fd=new FormData();
+      fd.append('target_user_id',pid); fd.append('candidate',e.candidate.candidate); fd.append('sdp_mid',e.candidate.sdpMid||''); fd.append('sdp_mline_index',e.candidate.sdpMLineIndex||0);
+      await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/voice/ice',{method:'POST',body:fd});
     }
   };
   await pc.setRemoteDescription(new RTCSessionDescription({type:'offer', sdp}));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  if(ws && ws.readyState===WebSocket.OPEN){
-    ws.send(JSON.stringify({type:'voice_answer', to_user_id:pid, sdp:answer.sdp}));
-  }
+  const fd=new FormData(); fd.append('target_user_id',pid); fd.append('sdp',answer.sdp);
+  await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/voice/answer',{method:'POST',body:fd});
 }
 
 async function handleAnswer(pid, sdp){
@@ -862,15 +952,11 @@ async function handleAnswer(pid, sdp){
   if(pc) await pc.setRemoteDescription(new RTCSessionDescription({type:'answer', sdp}));
 }
 
-async function handleIce(pid, candidate, sdpMLineIndex, sdpMid){
+async function handleIce(pid, candidate, sdpMid, sdpMLineIndex){
   const pc = peerConnections[pid];
   if(pc && candidate){
-    try{ await pc.addIceCandidate(new RTCIceCandidate({candidate, sdpMLineIndex, sdpMid})); }catch(e){}
+    try{ await pc.addIceCandidate(new RTCIceCandidate({candidate, sdpMid, sdpMLineIndex})); }catch(e){}
   }
-}
-
-function updateVoiceUI(users){
-  updateVoiceParticipants(users);
 }
 
 function updateVoiceParticipants(users){
@@ -881,44 +967,60 @@ function updateVoiceParticipants(users){
     <div class="voice-avatar">${esc(u.user_name?u.user_name[0]:'?')}</div>
     <div style="font-size:0.8rem;">${esc(u.user_name||'')}</div>
   </div>`).join('');
+  $('voiceMeta').textContent = list.length + '人在室';
 }
 
 window.toggleMute = function(){
   isMuted = !isMuted;
-  if(localStream){
-    localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted);
-  }
+  if(localStream){ localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted); }
   $('muteBtn').textContent = isMuted ? 'ミュート解除' : 'ミュート';
 };
 
-window.leaveVoice = function(){
+window.leaveVoice = async function(){
+  if(voicePollInterval){ clearInterval(voicePollInterval); voicePollInterval=null; }
   if(ws){ ws.close(); ws=null; }
-  leaveVoiceCleanup();
-  showChannels();
-};
-
-function leaveVoiceCleanup(){
+  if(activeChannel){
+    try{ await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/voice/leave',{method:'POST'}); }catch(e){}
+  }
   Object.values(peerConnections).forEach(pc=>pc.close());
   peerConnections={};
   if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
   document.querySelectorAll('audio[id^="audio-"]').forEach(a=>a.remove());
   activeChannel=null;
-}
+  showChannels();
+};
+
 
 // Notebook
-window.showNotebook = function(){ $('notebookSheet').classList.add('active'); loadNotebook(); };
-window.hideNotebook = function(){ $('notebookSheet').classList.remove('active'); };
-window.setTab = function(tab){ currentTab=tab; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab)); renderNotebook(); };
+window.showNotebook = function(){ $('notebookSheet').classList.add('active'); loadNotebook(); updateBottomNav('notebook'); };
+window.hideNotebook = function(){ $('notebookSheet').classList.remove('active'); updateBottomNav('chat'); };
+window.showProfile = function(){
+  updateBottomNav('profile');
+  const p=getProfile();
+  $('profileName').value=p.name; $('profileQuick').value=p.quick; $('profileSpeaker').value=p.speaker; $('profileTts').checked=p.tts; $('profileQuiet').checked=p.quiet;
+  $('profileVrmName').textContent = p.vrmUrl ? p.vrmUrl.split('/').pop() : 'デフォルト';
+  $('profileModal').classList.add('active');
+};
+window.hideProfile = function(){ $('profileModal').classList.remove('active'); updateBottomNav('chat'); };
+window.switchChatTab = function(tab){ updateBottomNav(tab); if(tab==='chat'){ hideNotebook(); hideProfile(); } };
+function updateBottomNav(tab){
+  document.querySelectorAll('.bottomnav button').forEach(b=>{
+    const isActive = (tab==='chat' && b.textContent==='メッセージ') || (tab==='notebook' && b.textContent==='ノート') || (tab==='profile' && b.textContent==='プロフィール');
+    b.classList.toggle('active', isActive);
+  });
+}
+window.setTab = function(tab){ currentTab=tab; document.querySelectorAll('#notebookSheet .tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab)); renderNotebook(); };
 
 async function loadNotebook(){
   if(!activeChannel || activeChannel.type!=='text' || !activeServer) return;
   try{
-    const [notes, tasks, events] = await Promise.all([
-      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes').then(r=>r.json()),
-      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks').then(r=>r.json()),
-      fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/events').then(r=>r.json())
+    const [notes, tasks, events, photos] = await Promise.all([
+      apiFetch(serverPath()+'/channels/'+activeChannel.id+'/notes').then(r=>r.json()),
+      apiFetch(serverPath()+'/channels/'+activeChannel.id+'/tasks').then(r=>r.json()),
+      apiFetch(serverPath()+'/channels/'+activeChannel.id+'/events').then(r=>r.json()),
+      apiFetch(serverPath()+'/channels/'+activeChannel.id+'/photos').then(r=>r.json())
     ]);
-    window._notebook = {notes, tasks, events};
+    window._notebook = {notes, tasks, events, photos};
     renderNotebook();
   }catch(e){}
 }
@@ -926,177 +1028,369 @@ window.loadNotebook = loadNotebook;
 
 function renderNotebook(){
   const body=$('notebookBody');
-  const data=window._notebook||{notes:[],tasks:[],events:[]};
+  const data=window._notebook||{notes:[],tasks:[],events:[],photos:[]};
   if(currentTab==='notes') renderNotes(data.notes);
   else if(currentTab==='tasks') renderTasks(data.tasks);
-  else renderEvents(data.events);
+  else if(currentTab==='events') renderEvents(data.events);
+  else renderPhotos(data.photos);
 }
 
+const canManageNotes = ()=> activeServer && (activeServer.permissions?.includes('manage_notes') || activeServer.my_role==='owner');
+
 function renderNotes(notes){
-  const profile=getProfile();
+  const can = canManageNotes();
   const html=[`<div class="addrow">
     <input id="noteContent" placeholder="メモを入力…">
     <select id="noteCategory"><option value="general">一般</option><option value="shopping">買い物</option><option value="appointment">予定</option></select>
-    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addNote()">追加</button>
-    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.summarizeNotes()">要約</button>
+    ${can?'<button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addNote()">追加</button><button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.summarizeNotes()">要約</button>':''}
   </div>`];
   notes.forEach(n=>{
-    html.push(`<div class="list-item" style="${n.is_pinned?'background:#FFF9F3;':''}">
-      <div><div style="font-size:0.95rem;">${esc(n.content)}</div><div class="meta">${categoryLabel(n.category)} · ${esc(n.created_by||'')}</div></div>
-      <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.pinNote('${esc(n.id)}')">${n.is_pinned?'解除':'ピン'}</button>
+    html.push(`<div class="list-item">
+      <div><div style="font-size:0.95rem;">${esc(n.content)}</div><div class="meta">${categoryLabel(n.category)} · ${esc(n.author_name||'')}</div></div>
+      ${can?`<div class="actions"><button onclick="window.editNote('${esc(n.id)}','${esc(n.content)}')">編集</button><button onclick="window.deleteNote('${esc(n.id)}')">削除</button></div>`:''}
     </div>`);
   });
-  $('notebookBody').innerHTML=html.join('');
+  body.innerHTML=html.join('');
 }
 function categoryLabel(c){ return {general:'一般',shopping:'買い物',appointment:'予定',task:'お手伝い'}[c]||c; }
 
 function renderTasks(tasks){
+  const can = canManageNotes();
   const html=[`<div class="addrow">
     <input id="taskTitle" placeholder="お手伝いを入力…">
     <input id="taskAssign" placeholder="担当者" style="max-width:120px;">
-    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addTask()">追加</button>
+    ${can?'<button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addTask()">追加</button>':''}
   </div>`];
   tasks.forEach(t=>{
     html.push(`<div class="list-item">
       <div style="opacity:${t.done?0.6:1};">
         <div style="text-decoration:${t.done?'line-through':'none'};font-size:0.95rem;">${esc(t.title)}</div>
-        <div class="meta">${t.assignee_name?'担当:'+esc(t.assignee_name)+' · ':''}${t.due_at?new Date(t.due_at).toLocaleString():''}</div>
+        <div class="meta">${t.assignee?'担当:'+esc(t.assignee)+' · ':''}${t.due?new Date(t.due).toLocaleString():''}</div>
       </div>
-      ${t.done?'<span style="color:var(--ok);font-size:0.8rem;">完了</span>':`<button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.doneTask('${esc(t.id)}')">完了</button>`}
+      ${can?`<div class="actions">${t.done?'':`<button onclick="window.doneTask('${esc(t.id)}')">完了</button>`}<button onclick="window.deleteTask('${esc(t.id)}')">削除</button></div>`:''}
     </div>`);
   });
-  $('notebookBody').innerHTML=html.join('');
+  body.innerHTML=html.join('');
 }
 
 function renderEvents(events){
+  const can = canManageNotes();
   const html=[`<div class="addrow">
     <input id="eventTitle" placeholder="予定のタイトル…">
     <input id="eventAt" type="datetime-local">
-    <button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addEvent()">追加</button>
+    ${can?'<button style="padding:6px 10px;font-size:0.8rem;background:var(--bg);border:1px solid var(--divider);" onclick="window.addEvent()">追加</button>':''}
   </div>`];
   events.forEach(ev=>{
     html.push(`<div class="list-item">
       <div><div style="font-size:0.95rem;">${esc(ev.title)}</div><div class="meta">${new Date(ev.event_at).toLocaleString()}</div></div>
+      ${can?`<div class="actions"><button onclick="window.deleteEvent('${esc(ev.id)}')">削除</button></div>`:''}
     </div>`);
   });
-  $('notebookBody').innerHTML=html.join('');
+  body.innerHTML=html.join('');
+}
+
+function renderPhotos(photos){
+  const can = canManageNotes();
+  const html=[`<div class="addrow" style="display:block;">
+    <label class="file-label">
+      <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="window.uploadPhoto(event)">
+      写真を選択
+    </label>
+  </div>`];
+  photos.forEach(p=>{
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;">
+      <img src="${esc(p.url)}" style="max-width:100%;max-height:200px;border-radius:4px;">
+      <div class="meta">${esc(p.uploader_name||'')} · ${p.created_at?new Date(p.created_at).toLocaleString():''}</div>
+    </div>`);
+  });
+  body.innerHTML=html.join('');
 }
 
 window.addNote = async function(){
   const content=$('noteContent').value.trim(); if(!content||!activeChannel||!activeServer) return;
-  const fd=new FormData(); fd.append('content',content); fd.append('category',$('noteCategory').value); fd.append('created_by',getProfile().name);
-  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes',{method:'POST',body:fd});
+  const fd=new FormData(); fd.append('content',content); fd.append('category',$('noteCategory').value);
+  await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/notes',{method:'POST',body:fd});
   $('noteContent').value=''; loadNotebook();
 };
-window.pinNote = async function(id){
-  if(!activeChannel||!activeServer) return;
-  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/notes/'+id+'/pin',{method:'POST'});
-  loadNotebook();
-};
+window.editNote = function(id,content){ const n=prompt('メモを編集',content); if(n===null) return; apiFetch(serverPath()+'/channels/'+activeChannel.id+'/notes/'+id,{method:'PUT',body:new URLSearchParams({content:n})}).then(loadNotebook); };
+window.deleteNote = async function(id){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/notes/'+id,{method:'DELETE'}); loadNotebook(); };
+window.summarizeNotes = async function(){ await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/summarize',{method:'POST'}); loadNotebook(); };
 window.addTask = async function(){
   const title=$('taskTitle').value.trim(); if(!title||!activeChannel||!activeServer) return;
-  const fd=new FormData(); fd.append('title',title); fd.append('created_by',getProfile().name); fd.append('assignee_name',$('taskAssign').value.trim());
-  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks',{method:'POST',body:fd});
+  const fd=new FormData(); fd.append('title',title); fd.append('assignee',$('taskAssign').value.trim());
+  await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/tasks',{method:'POST',body:fd});
   $('taskTitle').value=''; $('taskAssign').value=''; loadNotebook();
 };
-window.doneTask = async function(id){
-  if(!activeChannel||!activeServer) return;
-  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/tasks/'+id+'/done',{method:'POST'});
-  loadNotebook();
-};
+window.doneTask = async function(id){ await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/tasks/'+id,{method:'PUT',body:new URLSearchParams({done:'true'})}); loadNotebook(); };
+window.deleteTask = async function(id){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/tasks/'+id,{method:'DELETE'}); loadNotebook(); };
 window.addEvent = async function(){
-  const title=$('eventTitle').value.trim(); const at=$('eventAt').value;
-  if(!title||!at||!activeChannel||!activeServer) return;
-  const fd=new FormData(); fd.append('title',title); fd.append('event_at',new Date(at).toISOString()); fd.append('created_by',getProfile().name);
-  await fetch(API()+serverPath()+'/channels/'+activeChannel.id+'/events',{method:'POST',body:fd});
+  const title=$('eventTitle').value.trim(); const at=$('eventAt').value; if(!title||!at||!activeChannel||!activeServer) return;
+  const fd=new FormData(); fd.append('title',title); fd.append('event_at',at);
+  await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/events',{method:'POST',body:fd});
   $('eventTitle').value=''; $('eventAt').value=''; loadNotebook();
 };
-
-window.summarizeNotes = async function(){
-  if(!activeServer || !activeChannel) return;
-  const notes = window._notebook?.notes || [];
-  const context = notes.map(n=>n.content).join('\n');
-  if(!context) return alert('メモがありません');
-  try{
-    const fd = new FormData(); fd.append('context', context);
-    const res = await fetch(API()+serverPath()+'/summarize', {method:'POST', body:fd});
-    const data = await res.json();
-    if(data.summary) alert('要約:\n' + data.summary);
-    else alert('要約できませんでした');
-  } catch { alert('要約に失敗しました'); }
+window.deleteEvent = async function(id){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/events/'+id,{method:'DELETE'}); loadNotebook(); };
+window.uploadPhoto = async function(ev){
+  const f=ev.target.files[0]; if(!f||!activeChannel||!activeServer) return;
+  const fd=new FormData(); fd.append('file',f);
+  await apiFetch(serverPath()+'/channels/'+activeChannel.id+'/photos',{method:'POST',body:fd});
+  loadNotebook();
 };
 
 // Profile
-window.showProfile = function(){
-  const p=getProfile();
-  $('profileName').value = p.name;
-  $('profileQuick').value = p.quick;
-  $('profileTts').checked = p.tts;
-  $('profileQuiet').checked = p.quiet;
-  $('profileSpeaker').value = String(p.speaker);
-  $('profileVrmName').textContent = p.vrmUrl ? p.vrmUrl.split('/').pop() : 'デフォルト';
-  $('profileModal').classList.add('active');
+window.onProfileVrmSelected = function(ev){
+  const f=ev.target.files[0]; if(!f) return;
+  const url=URL.createObjectURL(f);
+  const p=getProfile(); p.vrmUrl=url; setProfile(p);
+  $('profileVrmName').textContent=f.name;
+  loadVrm(url);
 };
-window.hideProfile = function(){ $('profileModal').classList.remove('active'); };
-
-window.onProfileVrmSelected = async function(e){
-  const file=e.target.files[0]; if(!file) return;
-  const p=getProfile();
-  try{
-    const fd=new FormData(); fd.append('file',file);
-    const res=await (await fetch(API()+'/upload/avatar',{method:'POST',body:fd})).json();
-    if(res.url){ p.vrmUrl=API()+res.url; setProfile(p); loadVrm(p.vrmUrl); $('profileVrmName').textContent=file.name; }
-  }catch(err){ console.error('avatar upload failed',err); }
-};
-
 window.saveProfile = function(){
   const p=getProfile();
   p.name=$('profileName').value.trim()||'Webユーザー';
   p.quick=$('profileQuick').value;
-  p.tts=!!$('profileTts').checked;
-  p.quiet=!!$('profileQuiet').checked;
-  p.speaker=parseInt($('profileSpeaker').value,10);
+  p.speaker=parseInt($('profileSpeaker').value)||58;
+  p.tts=$('profileTts').checked;
+  p.quiet=$('profileQuiet').checked;
   setProfile(p);
-  loadQuickPhrases();
   hideProfile();
+  toast('保存しました');
 };
-
 function loadQuickPhrases(){
   const p=getProfile();
-  const phrases=p.quick.split(',').map(s=>s.trim()).filter(Boolean);
-  const chips=$('quickChips'); chips.innerHTML='';
-  phrases.forEach(text=>{
-    const b=document.createElement('button'); b.textContent=text;
-    b.onclick=()=>{ $('messageInput').value=text; window.sendMessage(); };
-    chips.appendChild(b);
-  });
+  const chips=$('quickChips');
+  const list = p.quick.split(',').map(s=>s.trim()).filter(Boolean);
+  chips.innerHTML = list.map(q=>`<button onclick="window.sendQuick('${esc(q)}')">${esc(q)}</button>`).join('');
+}
+window.sendQuick = function(q){ $('messageInput').value=q; window.sendMessage(); };
+
+// Server settings
+window.showServerSettings = function(){ $('serverSettingsModal').classList.add('active'); setSettingTab('overview'); };
+window.hideServerSettings = function(){ $('serverSettingsModal').classList.remove('active'); };
+window.setSettingTab = function(tab){ currentSettingTab=tab; document.querySelectorAll('#serverSettingsModal .tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab)); renderServerSettings(); };
+
+async function renderServerSettings(){
+  const body=$('serverSettingsBody');
+  body.innerHTML='<div class="meta" style="padding:16px;">読み込み中…</div>';
+  try{
+    if(currentSettingTab==='overview') renderOverview();
+    else if(currentSettingTab==='members'){ const m=await (await apiFetch(serverPath()+'/members')).json(); renderMembers(m); }
+    else if(currentSettingTab==='roles'){ const r=await (await apiFetch(serverPath()+'/roles')).json(); renderRoles(r); }
+    else if(currentSettingTab==='invites'){ const i=await (await apiFetch(serverPath()+'/invites')).json(); renderInvites(i); }
+    else if(currentSettingTab==='bots'){ const b=await (await apiFetch(serverPath()+'/bots')).json(); renderBots(b); }
+    else if(currentSettingTab==='knowledge'){ const k=await (await apiFetch(serverPath()+'/knowledge')).json(); renderKnowledge(k); }
+  }catch(e){ body.innerHTML='<div class="meta" style="padding:16px;">読み込みに失敗しました</div>'; }
 }
 
-// Server Settings
-window.showServerSettings = async function(){
-  if(!activeServer) return;
-  try{
-    const s = await (await fetch(API()+serverPath())).json();
-    const bots = await (await fetch(API()+serverPath()+'/bots')).json();
-    const kb = await (await fetch(API()+serverPath()+'/knowledge')).json();
-    $('serverSettingsBody').innerHTML = `
-      <div class="setting-row"><label>サーバー名</label><div>${esc(s.name)}</div></div>
-      <div class="setting-row"><label>歓迎メッセージ</label><div>${esc(s.welcome_message||'なし')}</div></div>
-      <div class="setting-row"><label>AIボット (${bots.length})</label>
-        ${bots.map(b=>`<div style="margin-top:4px;font-size:0.9rem;">${esc(b.name)} · ${esc(b.personality||'やさしい')}</div>`).join('')}
-      </div>
-      <div class="setting-row"><label>知識ベース (${kb.length})</label>
-        ${kb.map(k=>`<div style="margin-top:4px;font-size:0.9rem;">${esc(k.title)}</div>`).join('')}
-      </div>
-    `;
-    $('serverSettingsModal').classList.add('active');
-  }catch(e){}
-};
-window.hideServerSettings = function(){ $('serverSettingsModal').classList.remove('active'); };
+function renderOverview(){
+  const canManage = activeServer?.permissions?.includes('manage_server') || activeServer?.my_role==='owner';
+  $('serverSettingsBody').innerHTML = `
+    <div style="padding:16px;">
+      <div class="setting-row"><label>サーバー名</label><input id="ssName" class="field" value="${esc(activeServer?.name||'')}"></div>
+      <div class="setting-row"><label>ウェルカムメッセージ</label><input id="ssWelcome" class="field" value="${esc(activeServer?.welcome_message||'')}"></div>
+      <div class="setting-row"><label>参加パスワード（空欄で公開）</label><input id="ssPassword" class="field" type="password" placeholder="変更しない場合は空欄"></div>
+      <div class="setting-row"><label>Ollama URL</label><input id="ssOllamaUrl" class="field" value="${esc(activeServer?.ollama_url||'')}"></div>
+      <div class="setting-row"><label>Ollama モデル</label><input id="ssOllamaModel" class="field" value="${esc(activeServer?.ollama_model||'llama3')}"></div>
+      ${canManage?'<button class="btn" onclick="window.saveServerOverview()">保存</button>':''}
+      <button class="btn secondary" style="margin-top:8px;" onclick="window.leaveCurrentServer()">サーバーを退会</button>
+      ${activeServer?.my_role==='owner'?'<button class="btn danger" style="margin-top:8px;" onclick="window.deleteCurrentServer()">サーバー削除</button>':''}
+    </div>`;
+}
 
-// Init
-const p=getProfile();
-loadVrm(p.vrmUrl);
+window.saveServerOverview = async function(){
+  const fd=new FormData();
+  fd.append('name',$('ssName').value.trim());
+  fd.append('welcome_message',$('ssWelcome').value);
+  fd.append('ollama_url',$('ssOllamaUrl').value);
+  fd.append('ollama_model',$('ssOllamaModel').value);
+  if($('ssPassword').value) fd.append('password',$('ssPassword').value);
+  await apiFetch(serverPath(),{method:'PUT',body:fd});
+  toast('保存しました'); renderChannels();
+};
+
+window.leaveCurrentServer = async function(){
+  if(!confirm('サーバーから退会しますか？')) return;
+  await apiFetch(serverPath()+'/leave',{method:'POST'});
+  hideServerSettings(); showServers();
+};
+window.deleteCurrentServer = async function(){
+  if(!confirm('サーバーを削除しますか？ この操作は元に戻せません。')) return;
+  await apiFetch(serverPath(),{method:'DELETE'});
+  hideServerSettings(); showServers();
+};
+
+function renderMembers(members){
+  const canManage = activeServer?.permissions?.includes('manage_members') || activeServer?.my_role==='owner';
+  const isOwner = activeServer?.my_role==='owner';
+  const html=[`<div class="addrow"><input id="inviteTarget" placeholder="招待コードまたはユーザーID…"><button onclick="window.joinByInvite()">参加</button></div>`];
+  members.forEach(m=>{
+    const uid=esc(m.user_id);
+    html.push(`<div class="list-item">
+      <div><div style="font-weight:600;">${esc(m.user_name)}</div><div class="meta">${esc(m.role)} · ${m.joined_at?new Date(m.joined_at).toLocaleString():''}</div></div>
+      ${(canManage&&uid!==esc(myId))?`<div class="actions">
+        ${isOwner?`<select onchange="window.setRole('${uid}',this.value)"><option value="guest" ${m.role==='guest'?'selected':''}>guest</option><option value="member" ${m.role==='member'?'selected':''}>member</option><option value="moderator" ${m.role==='moderator'?'selected':''}>moderator</option><option value="admin" ${m.role==='admin'?'selected':''}>admin</option></select>`:''}
+        <button onclick="window.kickMember('${uid}')">退会</button>
+      </div>`:''}
+    </div>`);
+  });
+  $('serverSettingsBody').innerHTML=html.join('');
+}
+window.setRole = async function(uid,role){ await apiFetch(serverPath()+'/members/'+uid,{method:'PUT',body:new URLSearchParams({role})}); renderServerSettings(); };
+window.kickMember = async function(uid){ if(!confirm('退会させますか？')) return; await apiFetch(serverPath()+'/members/'+uid,{method:'DELETE'}); renderServerSettings(); };
+window.joinByInvite = async function(){
+  const code=$('inviteTarget').value.trim(); if(!code) return;
+  const fd=new FormData(); fd.append('user_id',myId); fd.append('user_name',getProfile().name);
+  const res = await apiFetch('/invites/'+code+'/join',{method:'POST',body:fd});
+  const data=await res.json();
+  if(data.error){ alert(data.error); return; }
+  toast('参加しました');
+  activeServer={id:data.server_id,name:data.server_name}; showChannels();
+};
+
+function renderRoles(roles){
+  const isOwner = activeServer?.my_role==='owner';
+  const allPerms = ['manage_server','manage_channels','manage_members','manage_bots','manage_notes','manage_invites','send_messages','use_voice','view_channels'];
+  let html=[`<div class="addrow"><input id="newRoleName" placeholder="新しい役割名"><button onclick="window.createRole()">追加</button></div>`];
+  Object.entries(roles).forEach(([name,role])=>{
+    if(name==='owner'){
+      html.push(`<div class="list-item"><div><div style="font-weight:600;">${esc(name)}</div><div class="meta">全権限</div></div></div>`);
+      return;
+    }
+    const perms = role.permissions||[];
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;">
+      <div style="font-weight:600;">${esc(name)}</div>
+      <div class="perms">${allPerms.map(p=>`<label><input type="checkbox" ${perms.includes(p)||perms.includes('*')?'checked':''} onchange="window.toggleRolePerm('${esc(name)}','${p}',this.checked)" ${isOwner?'':'disabled'}> ${esc(p)}</label>`).join('')}</div>
+    </div>`);
+  });
+  $('serverSettingsBody').innerHTML=html.join('');
+}
+window.createRole = async function(){
+  const name=$('newRoleName').value.trim(); if(!name) return;
+  await apiFetch(serverPath()+'/roles',{method:'POST',body:new URLSearchParams({role_name:name,permissions:'view_channels'})});
+  renderServerSettings();
+};
+window.toggleRolePerm = async function(role,perm,checked){
+  const res=await apiFetch(serverPath()+'/roles/'+role,{method:'PUT',body:new URLSearchParams({permissions:'dummy'})});
+  // We need current perms; refetch roles
+  const roles=await (await apiFetch(serverPath()+'/roles')).json();
+  const perms=new Set((roles[role]?.permissions||[]).filter(p=>p!=='*'));
+  if(checked) perms.add(perm); else perms.delete(perm);
+  await apiFetch(serverPath()+'/roles/'+role,{method:'PUT',body:new URLSearchParams({permissions:Array.from(perms).join(',')})});
+  renderServerSettings();
+};
+
+function renderInvites(invites){
+  const canManage = activeServer?.permissions?.includes('manage_invites') || activeServer?.my_role==='owner';
+  const channels = activeServer?.channels || [];
+  let html=[`<div style="padding:12px;">
+    <select id="inviteChannel" class="field" style="margin-bottom:8px;"><option value="">サーバー全体</option>${channels.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select>
+    <button class="btn" onclick="window.createInvite()">招待リンクを作成</button>
+  </div>`];
+  invites.forEach(i=>{
+    const link = location.origin + '/invites/' + i.code;
+    const qr = '/invites/' + i.code + '/qr';
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;">
+      <div style="font-weight:600;">${esc(i.code)}</div>
+      <div class="meta">${i.channel_id?'チャンネル招待':'サーバー招待'} · 使用回数 ${i.uses}/${i.max_uses||'無制限'} · ${i.expires_at?'期限:'+new Date(i.expires_at).toLocaleString():'期限なし'}</div>
+      <img src="${qr}" style="width:160px;height:160px;background:#fff;border-radius:8px;" alt="QR">
+      <div class="actions"><button onclick="navigator.clipboard.writeText('${link}');toast('コピーしました')">リンクをコピー</button>${canManage?`<button onclick="window.deleteInvite('${esc(i.code)}')">削除</button>`:''}</div>
+    </div>`);
+  });
+  $('serverSettingsBody').innerHTML=html.join('');
+}
+window.createInvite = async function(){
+  const fd = new FormData();
+  const channelId = $('inviteChannel')?.value;
+  if (channelId) fd.append('channel_id', channelId);
+  await apiFetch(serverPath()+'/invites',{method:'POST',body:fd});
+  renderServerSettings();
+};
+window.deleteInvite = async function(code){ await apiFetch(serverPath()+'/invites/'+code,{method:'DELETE'}); renderServerSettings(); };
+
+function renderBots(bots){
+  const canManage = activeServer?.permissions?.includes('manage_bots') || activeServer?.my_role==='owner';
+  let html=[`<div class="addrow"><input id="newBotName" placeholder="ボット名"><input id="newBotPersonality" placeholder="性格" value="やさしい"><button onclick="window.createBot()">追加</button></div>`];
+  bots.forEach(b=>{
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+      <div style="font-weight:600;">${esc(b.name)}</div>
+      <div class="meta">性格: ${esc(b.personality)} · モデル: ${esc(b.model||'デフォルト')} · TTS:${b.voice_enabled?'ON':'OFF'} · 自発:${b.proactive_enabled?'ON':'OFF'}</div>
+      ${canManage?`<div class="actions"><button onclick="window.editBot('${esc(b.id)}')">編集</button><button onclick="window.deleteBot('${esc(b.id)}')">削除</button></div>`:''}
+    </div>`);
+  });
+  $('serverSettingsBody').innerHTML=html.join('');
+}
+window.createBot = async function(){
+  const name=$('newBotName').value.trim(); if(!name) return;
+  await apiFetch(serverPath()+'/bots',{method:'POST',body:new URLSearchParams({name,personality:$('newBotPersonality').value})});
+  renderServerSettings();
+};
+window.editBot = async function(bid){
+  const name=prompt('ボット名'); if(name===null) return;
+  const personality=prompt('性格'); if(personality===null) return;
+  await apiFetch(serverPath()+'/bots/'+bid,{method:'PUT',body:new URLSearchParams({name,personality})});
+  renderServerSettings();
+};
+window.deleteBot = async function(bid){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/bots/'+bid,{method:'DELETE'}); renderServerSettings(); };
+
+function renderKnowledge(knowledge){
+  const canManage = activeServer?.permissions?.includes('manage_bots') || activeServer?.my_role==='owner';
+  let html=[`<div class="addrow"><input id="newKnowTitle" placeholder="タイトル"><input id="newKnowContent" placeholder="内容"><button onclick="window.addKnowledge()">追加</button></div>`];
+  knowledge.forEach(k=>{
+    html.push(`<div class="list-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+      <div style="font-weight:600;">${esc(k.title)}</div>
+      <div style="font-size:0.9rem;">${esc(k.content)}</div>
+      ${canManage?`<div class="actions"><button onclick="window.editKnowledge('${esc(k.id)}')">編集</button><button onclick="window.deleteKnowledge('${esc(k.id)}')">削除</button></div>`:''}
+    </div>`);
+  });
+  $('serverSettingsBody').innerHTML=html.join('');
+}
+window.addKnowledge = async function(){
+  const title=$('newKnowTitle').value.trim(); const content=$('newKnowContent').value.trim(); if(!title||!content) return;
+  await apiFetch(serverPath()+'/knowledge',{method:'POST',body:new URLSearchParams({title,content})});
+  renderServerSettings();
+};
+window.editKnowledge = async function(kid){
+  const title=prompt('タイトル'); if(title===null) return;
+  const content=prompt('内容'); if(content===null) return;
+  await apiFetch(serverPath()+'/knowledge/'+kid,{method:'PUT',body:new URLSearchParams({title,content})});
+  renderServerSettings();
+};
+window.deleteKnowledge = async function(kid){ if(!confirm('削除しますか？')) return; await apiFetch(serverPath()+'/knowledge/'+kid,{method:'DELETE'}); renderServerSettings(); };
+
+window.onload = async function(){
+  const params = new URLSearchParams(location.search);
+  const invite = params.get('invite');
+  const serverId = params.get('server');
+  const channelId = params.get('channel');
+  if (!invite && !serverId) return;
+  activeHost = {id:'url_host', name:'URL Host', url: location.origin.replace(/\/$/, '')};
+  try {
+    if (invite) {
+      const res = await apiFetch('/invites/'+invite+'/join', {method:'POST', body: new URLSearchParams({user_id: myId, user_name: getProfile().name})});
+      const data = await res.json();
+      if (data.error) { alert(data.error); return; }
+      activeServer = {id: data.server_id, name: data.server_name};
+      if (data.channel_id) { activeChannel={id:data.channel_id, name:'招待チャンネル'}; await connectWs(data.channel_id, ''); }
+      else { showChannels(); }
+      return;
+    }
+    if (serverId) {
+      activeServer = {id: serverId};
+      const info = await (await apiFetch(serverPath())).json();
+      activeServer.name = info.name;
+      activeServer.my_role = info.my_role;
+      activeServer.permissions = info.permissions || [];
+      activeServer.channels = info.channels || [];
+      if (channelId) {
+        const ch = info.channels?.find(c=>c.id===channelId);
+        activeChannel={id:channelId, name: ch?.name||'チャンネル'};
+        if (ch?.type==='voice') { await joinVoice(channelId, ''); }
+        else { await connectWs(channelId, ''); }
+      } else { showChannels(); }
+    }
+  } catch(e){ alert('自動参加に失敗しました'); }
+};
+
 </script>
 </body>
 </html>
