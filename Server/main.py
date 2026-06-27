@@ -5,7 +5,9 @@ import os
 import random
 import secrets
 import shutil
+import signal
 import socket
+import sys
 import threading
 import uuid
 import io
@@ -200,21 +202,50 @@ def load_state():
         asyncio.get_event_loop().run_until_complete(save_state())
 
 load_state()
+
+def _sync_save():
+    """Synchronous save for signal handlers and atexit."""
+    try:
+        tmp = STATE_FILE.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(servers, f, ensure_ascii=False, default=str)
+        tmp.replace(STATE_FILE)
+        print("[State] Sync saved")
+    except Exception as e:
+        print(f"[State] Sync save failed: {e}")
+
+def _handle_signal(signum, frame):
+    print(f"[State] Signal {signum} received, saving state...")
+    _sync_save()
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _handle_signal)
+signal.signal(signal.SIGINT, _handle_signal)
+
 def _atexit_save():
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running(): loop.create_task(save_state())
         else: loop.run_until_complete(save_state())
     except RuntimeError:
-        loop = asyncio.new_event_loop()
-        loop.run_until_complete(save_state())
-        loop.close()
+        _sync_save()
 atexit.register(_atexit_save)
 
 async def autosave():
+    backup_interval = 0
     while True:
         await asyncio.sleep(60)
         await save_state()
+        backup_interval += 1
+        if backup_interval >= 5:
+            backup_interval = 0
+            try:
+                bak = STATE_FILE.with_suffix(f".bak.{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+                shutil.copy2(STATE_FILE, bak)
+                for old in sorted(DATA_DIR.glob("servers.json.bak.*"))[:-10]:
+                    old.unlink()
+            except Exception as e:
+                print(f"[State] Backup failed: {e}")
 
 @app.on_event("startup")
 async def on_startup():
@@ -462,7 +493,6 @@ async def admin_list_rooms(sid: str, request: Request):
 
 @app.get("/discover")
 async def discover():
-    import sys
     port = 8000
     for arg in sys.argv:
         if arg.startswith("--port="):
@@ -580,11 +610,29 @@ async def join_server(sid: str, request: Request, password: Optional[str] = Form
     await save_state()
     return {"joined": True, "user_id": uid, "role": role}
 
+@app.get("/s/{sid}/verify")
+async def verify_membership(sid: str, request: Request):
+    """Returns whether the server exists and the user's membership status.
+    Used by clients to detect stale memberships after server reset."""
+    uid, _ = await identify_user(request)
+    if sid not in servers:
+        return {"exists": False, "is_member": False}
+    s = servers[sid]
+    member = s.get("members", {}).get(uid)
+    return {
+        "exists": True,
+        "is_member": member is not None,
+        "role": member.get("role") if member else None,
+        "server_name": s.get("name", ""),
+    }
+
 @app.post("/s/{sid}/leave")
 async def leave_server(sid: str, request: Request, user_id: Optional[str] = Form(None)):
-    s = get_server(sid)
     uid, _ = await identify_user(request)
     if user_id: uid = user_id
+    if sid not in servers:
+        return {"left": True, "not_found": True}
+    s = servers[sid]
     if is_owner(s, uid):
         return JSONResponse({"error": "Owner cannot leave server"}, status_code=400)
     s.get("members", {}).pop(uid, None)
@@ -608,10 +656,21 @@ async def update_server(sid: str, request: Request, name: Optional[str] = Form(N
 
 @app.delete("/s/{sid}")
 async def delete_server(sid: str, request: Request):
-    s = get_server(sid)
+    if sid not in servers:
+        return {"deleted": sid, "not_found": True}
+    s = servers[sid]
     uid, _ = await identify_user(request)
     if not is_owner(s, uid):
         require_permission(s, uid, "manage_server")
+    for rid, room in s.get("rooms", {}).items():
+        for photo in room.get("photos", []):
+            ppath = static_dir / "photos" / f"{photo.get('id', '')}.jpg"
+            if ppath.exists(): ppath.unlink()
+    for key in list(manager.active.keys()):
+        if key.startswith(f"{sid}:"):
+            for conn in manager.active.pop(key, []):
+                try: await conn["ws"].close()
+                except Exception: pass
     del servers[sid]
     await save_state()
     return {"deleted": sid}

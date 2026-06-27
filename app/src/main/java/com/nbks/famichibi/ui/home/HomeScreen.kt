@@ -102,12 +102,35 @@ fun HomeScreen(
         } catch (_: Exception) { snackbarHostState.showSnackbar("招待コードが無効です") }
     }
 
+    suspend fun cleanupStaleMemberships() {
+        val valid = mutableListOf<ServerMembership>()
+        for (m in memberships) {
+            val host = hosts.find { it.id == m.hostId }
+            if (host == null) continue
+            try {
+                val res = ApiClient.get("${host.url}/s/${m.serverId}/verify", userId, m.nickname.ifEmpty { userName })
+                if (res.status == HttpStatusCode.OK) {
+                    val text = res.bodyAsText()
+                    if (text.contains("\"exists\":true") && text.contains("\"is_member\":true")) {
+                        valid.add(m)
+                        continue
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+        if (valid.size != memberships.size) {
+            memberships = valid
+            prefs.setServerMemberships(valid)
+        }
+    }
+
     LaunchedEffect(Unit) {
         userId = prefs.userId.first().ifEmpty { UUID.randomUUID().toString().also { prefs.setUserId(it) } }
         val savedName = prefs.userName.first()
         userName = savedName.ifBlank { "お兄ちゃん".also { prefs.setUserName(it) } }
         hosts = prefs.hosts.first()
         memberships = prefs.serverMemberships.first()
+        cleanupStaleMemberships()
         val today = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
         if (prefs.lastBriefingDate.first() != today) {
             briefingText = buildBriefing(formatName(memberships.firstOrNull()?.nickname ?: userName), memberships.isNotEmpty())
@@ -135,27 +158,29 @@ fun HomeScreen(
     }
 
     suspend fun leaveMembership(m: ServerMembership) {
-        val host = hosts.find { it.id == m.hostId } ?: return
-        try {
-            val res = ApiClient.postForm("${host.url}/s/${m.serverId}/leave", userId, m.nickname.ifEmpty { userName }, Parameters.build { })
-            if (res.status == HttpStatusCode.OK) {
-                val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
-                prefs.setServerMemberships(list)
-                memberships = list
-            } else snackbarHostState.showSnackbar("退会に失敗しました")
-        } catch (_: Exception) { snackbarHostState.showSnackbar("退会に失敗しました") }
+        val host = hosts.find { it.id == m.hostId }
+        if (host != null) {
+            try {
+                ApiClient.postForm("${host.url}/s/${m.serverId}/leave", userId, m.nickname.ifEmpty { userName }, Parameters.build { })
+            } catch (_: Exception) { }
+        }
+        val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+        prefs.setServerMemberships(list)
+        memberships = list
+        snackbarHostState.showSnackbar("退会しました")
     }
 
     suspend fun deleteRemoteServer(m: ServerMembership) {
-        val host = hosts.find { it.id == m.hostId } ?: return
-        try {
-            val res = ApiClient.delete("${host.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
-            if (res.status == HttpStatusCode.OK) {
-                val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
-                prefs.setServerMemberships(list)
-                memberships = list
-            } else snackbarHostState.showSnackbar("削除に失敗しました")
-        } catch (_: Exception) { snackbarHostState.showSnackbar("削除に失敗しました") }
+        val host = hosts.find { it.id == m.hostId }
+        if (host != null) {
+            try {
+                ApiClient.delete("${host.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
+            } catch (_: Exception) { }
+        }
+        val list = memberships.filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+        prefs.setServerMemberships(list)
+        memberships = list
+        snackbarHostState.showSnackbar("削除しました")
     }
 
     Scaffold(

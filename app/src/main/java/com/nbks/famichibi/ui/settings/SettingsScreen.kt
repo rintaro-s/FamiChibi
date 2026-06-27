@@ -55,6 +55,7 @@ fun SettingsScreen(
     var ttsEnabled by remember { mutableStateOf(false) }
     var voiceEnabled by remember { mutableStateOf(false) }
     var speaker by remember { mutableIntStateOf(58) }
+    var demoMode by remember { mutableStateOf(false) }
 
     var showAddHost by remember { mutableStateOf(false) }
     var newHostName by remember { mutableStateOf("") }
@@ -81,6 +82,7 @@ fun SettingsScreen(
         ttsEnabled = prefs.ttsEnabled.first()
         voiceEnabled = prefs.voiceInputEnabled.first()
         speaker = prefs.voicevoxSpeaker.first()
+        demoMode = prefs.demoMode.first()
         assetVrms = AssetVrmScanner.listAssetVrms(context)
     }
 
@@ -105,6 +107,7 @@ fun SettingsScreen(
         prefs.setTtsEnabled(ttsEnabled)
         prefs.setVoiceInputEnabled(voiceEnabled)
         prefs.setVoicevoxSpeaker(speaker)
+        prefs.setDemoMode(demoMode)
     }
 
     suspend fun addHost() {
@@ -171,6 +174,16 @@ fun SettingsScreen(
 
         SettingSection(title = "クイック返信") {
             OutlinedTextField(value = quickPhrases, onValueChange = { quickPhrases = it }, label = { Text("カンマ区切り") }, modifier = Modifier.fillMaxWidth())
+        }
+
+        SettingSection(title = "デモモード") {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("デモモード", style = MaterialTheme.typography.bodyMedium)
+                    Text("アバター2体を表示してランダムに動かす", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = demoMode, onCheckedChange = { demoMode = it })
+            }
         }
 
         SettingSection(title = "音声とおやすみ") {

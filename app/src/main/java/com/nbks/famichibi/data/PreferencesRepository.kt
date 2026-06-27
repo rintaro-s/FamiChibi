@@ -72,6 +72,7 @@ class PreferencesRepository(private val context: Context) {
         val VOICE_INPUT_ENABLED = stringPreferencesKey("voice_input_enabled")
         val VOICEVOX_SPEAKER = intPreferencesKey("voicevox_speaker")
         val LAST_BRIEFING_DATE = stringPreferencesKey("last_briefing_date")
+        val DEMO_MODE = stringPreferencesKey("demo_mode")
     }
 
     val hosts: Flow<List<HostConfig>> = context.dataStore.data.map {
@@ -107,6 +108,9 @@ class PreferencesRepository(private val context: Context) {
     val voiceInputEnabled: Flow<Boolean> = context.dataStore.data.map { it[VOICE_INPUT_ENABLED] != "0" }
     val voicevoxSpeaker: Flow<Int> = context.dataStore.data.map { it[VOICEVOX_SPEAKER] ?: 58 }
     val lastBriefingDate: Flow<String> = context.dataStore.data.map { it[LAST_BRIEFING_DATE] ?: "" }
+    val demoMode: Flow<Boolean> = context.dataStore.data.map { it[DEMO_MODE] != "0" }
+
+    suspend fun setDemoMode(enabled: Boolean) { context.dataStore.edit { it[DEMO_MODE] = if (enabled) "1" else "0" } }
 
     suspend fun setHosts(list: List<HostConfig>) { context.dataStore.edit { it[HOSTS] = json.encodeToString(list) } }
     suspend fun setServerMemberships(list: List<ServerMembership>) { context.dataStore.edit { it[SERVER_MEMBERSHIPS] = json.encodeToString(list) } }

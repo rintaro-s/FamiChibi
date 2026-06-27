@@ -9,22 +9,30 @@ import java.nio.ByteOrder
 
 private const val TAG = "com.nbks.famichibi"
 
+data class ParseResult(
+    val root: GltfRoot,
+    val meshes: List<MeshData>,
+    val vrmExtension: VrmExtension?,
+)
+
 class GltfParser(private val root: GltfRoot, private val binChunk: ByteArray) {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     companion object {
-        fun parse(glbBytes: ByteArray): Pair<GltfRoot, List<MeshData>>? {
+        private val parseJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+        fun parse(glbBytes: ByteArray): ParseResult? {
             val (jsonObj, bin) = VrmGlbParser.parseGlb(glbBytes) ?: return null
             val root = try {
-                Json { ignoreUnknownKeys = true; isLenient = true }
-                    .decodeFromJsonElement(GltfRoot.serializer(), jsonObj)
+                parseJson.decodeFromJsonElement(GltfRoot.serializer(), jsonObj)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to decode GLTF JSON", e)
                 return null
             }
+            val vrmExt = VrmGlbParser.extractVrmExtension(jsonObj)
             val meshes = GltfParser(root, bin).parseMeshes()
-            return root to meshes
+            return ParseResult(root, meshes, vrmExt)
         }
     }
 

@@ -118,41 +118,35 @@ fun ServerSettingsScreen(
     }
 
     suspend fun leave() {
-        val h = host ?: return
+        val h = host
         val m = membership ?: return
         isLoading = true
-        try {
-            val res = ApiClient.postForm("${h.url}/s/${m.serverId}/leave", userId, m.nickname.ifEmpty { userName }, Parameters.build { })
-            if (res.status == HttpStatusCode.OK) {
-                val list = prefs.serverMemberships.first().filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
-                prefs.setServerMemberships(list)
-                snackbarHostState.showSnackbar("退会しました")
-                navController.navigate("home") { popUpTo("home") { inclusive = true } }
-            } else {
-                snackbarHostState.showSnackbar("退会に失敗しました")
-            }
-        } catch (_: Exception) {
-            snackbarHostState.showSnackbar("退会に失敗しました")
-        } finally { isLoading = false }
+        if (h != null) {
+            try {
+                ApiClient.postForm("${h.url}/s/${m.serverId}/leave", userId, m.nickname.ifEmpty { userName }, Parameters.build { })
+            } catch (_: Exception) { }
+        }
+        val list = prefs.serverMemberships.first().filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+        prefs.setServerMemberships(list)
+        isLoading = false
+        snackbarHostState.showSnackbar("退会しました")
+        navController.navigate("home") { popUpTo("home") { inclusive = true } }
     }
 
     suspend fun deleteServer() {
-        val h = host ?: return
+        val h = host
         val m = membership ?: return
         isLoading = true
-        try {
-            val res = ApiClient.delete("${h.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
-            if (res.status == HttpStatusCode.OK) {
-                val list = prefs.serverMemberships.first().filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
-                prefs.setServerMemberships(list)
-                snackbarHostState.showSnackbar("サーバーを削除しました")
-                navController.navigate("home") { popUpTo("home") { inclusive = true } }
-            } else {
-                snackbarHostState.showSnackbar("削除に失敗しました")
-            }
-        } catch (_: Exception) {
-            snackbarHostState.showSnackbar("削除に失敗しました")
-        } finally { isLoading = false }
+        if (h != null) {
+            try {
+                ApiClient.delete("${h.url}/s/${m.serverId}", userId, m.nickname.ifEmpty { userName })
+            } catch (_: Exception) { }
+        }
+        val list = prefs.serverMemberships.first().filterNot { it.serverId == m.serverId && it.hostId == m.hostId }
+        prefs.setServerMemberships(list)
+        isLoading = false
+        snackbarHostState.showSnackbar("サーバーを削除しました")
+        navController.navigate("home") { popUpTo("home") { inclusive = true } }
     }
 
     LaunchedEffect(Unit) { refresh() }

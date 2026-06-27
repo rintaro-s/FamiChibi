@@ -57,13 +57,17 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         in vec4 aWeight;
         uniform mat4 uMVP;
         uniform mat4 uBones[$MAX_BONES];
+        uniform float uHasSkin;
         out vec2 vTexCoord;
         void main() {
-            mat4 skinMatrix =
-                aWeight.x * uBones[int(aJoint.x)] +
-                aWeight.y * uBones[int(aJoint.y)] +
-                aWeight.z * uBones[int(aJoint.z)] +
-                aWeight.w * uBones[int(aJoint.w)];
+            mat4 skinMatrix = mat4(1.0);
+            if (uHasSkin > 0.5) {
+                skinMatrix =
+                    aWeight.x * uBones[int(aJoint.x)] +
+                    aWeight.y * uBones[int(aJoint.y)] +
+                    aWeight.z * uBones[int(aJoint.z)] +
+                    aWeight.w * uBones[int(aJoint.w)];
+            }
             gl_Position = uMVP * skinMatrix * aPosition;
             vTexCoord = aTexCoord;
         }
@@ -102,6 +106,7 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
     private var needsMeshUpdate = false
     private var pendingRoot: GltfRoot? = null
     private var pendingMeshes: List<MeshData>? = null
+    private var pendingVrmExt: VrmExtension? = null
 
     // Bone animation state
     private var animNodes: MutableList<AnimNode>? = null
@@ -109,13 +114,19 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
     private val boneMatrices = FloatArray(MAX_BONES * 16)
     private var jointNameToIndex = mutableMapOf<String, Int>()
     private val boneAxes = mutableMapOf<String, FloatArray>()
-    private val boneSwingDownAxes = mutableMapOf<String, FloatArray>()   // swing limb toward ground (arms down)
-    private val boneSwingForwardAxes = mutableMapOf<String, FloatArray>() // swing limb forward/back (walk)
+    private val boneSwingDownAxes = mutableMapOf<String, FloatArray>()
+    private val boneSwingForwardAxes = mutableMapOf<String, FloatArray>()
+
+    // Humanoid bone mapping: standard VRM name -> node index
+    private val humanoidBones = mutableMapOf<String, Int>()
 
     enum class AnimationState { IDLE, WALK, SKIP, FLAIL, RESIST, DIZZY }
-    var animationState = AnimationState.WALK
+    var animationState = AnimationState.IDLE
     var dizzyRemaining = 0f
     private val dizzyWobbleSpeed = 18f
+
+    // Breathing
+    private var breathePhase = 0f
 
     private val fingerBones = setOf(
         "J_Bip_L_ThumbMetacarpal", "J_Bip_L_ThumbProximal", "J_Bip_L_ThumbDistal",
@@ -141,17 +152,20 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         val children: List<Int> = emptyList(),
     )
 
-    fun loadModel(root: GltfRoot, meshes: List<MeshData>) {
+    fun loadModel(root: GltfRoot, meshes: List<MeshData>, vrmExt: VrmExtension? = null) {
         pendingRoot = root
         pendingMeshes = meshes
+        pendingVrmExt = vrmExt
         needsMeshUpdate = true
     }
 
     private fun applyPendingMeshes() {
         val root = pendingRoot ?: return
         val meshes = pendingMeshes ?: return
+        val vrmExt = pendingVrmExt
         pendingRoot = null
         pendingMeshes = null
+        pendingVrmExt = null
         needsMeshUpdate = false
 
         for (mr in meshRenderers) mr.destroy()
@@ -175,6 +189,7 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
         skinData = meshes.firstOrNull { it.skin != null }?.skin
         jointNameToIndex.clear()
+        humanoidBones.clear()
         skinData?.let { skin ->
             for ((idx, nodeIdx) in skin.joints.withIndex()) {
                 val node = root.nodes?.getOrNull(nodeIdx)
@@ -184,6 +199,48 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             }
             Log.d(TAG, "Bone names (${skin.joints.size}): ${jointNameToIndex.keys.take(20).joinToString()}")
         }
+
+        // Build humanoid bone mapping from VRM extension
+        vrmExt?.humanoid?.humanBones?.forEach { hb ->
+            humanoidBones[hb.bone] = hb.node
+            val node = root.nodes?.getOrNull(hb.node)
+            if (node?.name != null) {
+                Log.d(TAG, "Humanoid bone ${hb.bone} -> node ${hb.node} (${node.name})")
+            }
+        }
+        if (humanoidBones.isEmpty()) {
+            // Fallback: try to match by common naming patterns
+            root.nodes?.forEachIndexed { idx, node ->
+                val name = node.name ?: return@forEachIndexed
+                val stdName = when {
+                    name.contains("Hips", ignoreCase = true) -> "hips"
+                    name.contains("Spine", ignoreCase = true) -> "spine"
+                    name.contains("Chest", ignoreCase = true) -> "chest"
+                    name.contains("Neck", ignoreCase = true) -> "neck"
+                    name.contains("Head", ignoreCase = true) -> "head"
+                    name.contains("LeftEye", ignoreCase = true) -> "leftEye"
+                    name.contains("RightEye", ignoreCase = true) -> "rightEye"
+                    name.contains("LeftUpperArm", ignoreCase = true) || (name.contains("L_UpperArm") || name.contains("LeftArm")) && !name.contains("Lower") -> "leftUpperArm"
+                    name.contains("LeftLowerArm", ignoreCase = true) || name.contains("L_LowerArm") || name.contains("LeftForearm") -> "leftLowerArm"
+                    name.contains("LeftHand", ignoreCase = true) -> "leftHand"
+                    name.contains("RightUpperArm", ignoreCase = true) || (name.contains("R_UpperArm") || name.contains("RightArm")) && !name.contains("Lower") -> "rightUpperArm"
+                    name.contains("RightLowerArm", ignoreCase = true) || name.contains("R_LowerArm") || name.contains("RightForearm") -> "rightLowerArm"
+                    name.contains("RightHand", ignoreCase = true) -> "rightHand"
+                    name.contains("LeftUpperLeg", ignoreCase = true) || (name.contains("L_UpperLeg") || name.contains("LeftLeg") || name.contains("LeftThigh")) && !name.contains("Lower") -> "leftUpperLeg"
+                    name.contains("LeftLowerLeg", ignoreCase = true) || name.contains("L_LowerLeg") || name.contains("LeftCalf") -> "leftLowerLeg"
+                    name.contains("LeftFoot", ignoreCase = true) -> "leftFoot"
+                    name.contains("RightUpperLeg", ignoreCase = true) || (name.contains("R_UpperLeg") || name.contains("RightLeg") || name.contains("RightThigh")) && !name.contains("Lower") -> "rightUpperLeg"
+                    name.contains("RightLowerLeg", ignoreCase = true) || name.contains("R_LowerLeg") || name.contains("RightCalf") -> "rightLowerLeg"
+                    name.contains("RightFoot", ignoreCase = true) -> "rightFoot"
+                    else -> null
+                }
+                if (stdName != null && !humanoidBones.containsKey(stdName)) {
+                    humanoidBones[stdName] = idx
+                    Log.d(TAG, "Fallback humanoid bone $stdName -> node $idx ($name)")
+                }
+            }
+        }
+        Log.d(TAG, "Humanoid bones mapped: ${humanoidBones.size}")
 
         for (mesh in meshes) {
             try {
@@ -255,12 +312,16 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         if (meshRenderers.isEmpty()) return
 
+        // Always advance animPhase for breathing and idle sway
+        animPhase += 0.05f
+        breathePhase += 0.03f
+
         if (animationState == AnimationState.WALK) {
-            animPhase += 0.15f
+            animPhase += 0.10f
         } else if (animationState == AnimationState.SKIP) {
-            animPhase += 0.3f
+            animPhase += 0.25f
         } else if (animationState == AnimationState.FLAIL) {
-            animPhase += 0.8f
+            animPhase += 0.75f
         }
 
         applyAnimation()
@@ -370,7 +431,6 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
             if (kotlin.math.abs(swingForward[0]) + kotlin.math.abs(swingForward[1]) + kotlin.math.abs(swingForward[2]) > 0.01f) {
                 boneSwingForwardAxes[node.name ?: ""] = swingForward
             }
-            Log.d(TAG, "Bone ${node.name}: long=(${longAxis[0]},${longAxis[1]},${longAxis[2]}), downSwing=(${swingDown[0]},${swingDown[1]},${swingDown[2]}), fwdSwing=(${swingForward[0]},${swingForward[1]},${swingForward[2]})")
         }
     }
 
@@ -379,6 +439,21 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         val s = kotlin.math.sin(half)
         val c = kotlin.math.cos(half)
         return floatArrayOf(ax * s, ay * s, az * s, c)
+    }
+
+    /** Get node index for a VRM humanoid bone name, or -1 */
+    private fun hb(name: String): Int = humanoidBones[name] ?: -1
+
+    /** Get AnimNode for a humanoid bone, or null */
+    private fun hn(name: String): AnimNode? {
+        val idx = hb(name)
+        return if (idx >= 0) animNodes?.getOrNull(idx) else null
+    }
+
+    /** Get the name of a humanoid bone's node */
+    private fun hbName(name: String): String? {
+        val idx = hb(name)
+        return animNodes?.getOrNull(idx)?.name
     }
 
     private fun applyAnimation() {
@@ -400,22 +475,38 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
     private fun applyIdlePose() {
         val nodes = animNodes ?: return
+        val breathe = kotlin.math.sin(breathePhase) * 0.04f
+        val sway = kotlin.math.sin(animPhase * 0.3f) * 0.015f
+
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
-                    // Swing arm down from T-pose toward body
-                    val swing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.5f))
+                hbName("hips") -> {
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 0f, 1f, sway))
                 }
+                hbName("spine"), hbName("chest") -> {
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(1f, 0f, 0f, breathe))
+                }
+                hbName("head") -> {
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 0f, 1f, sway * 0.3f))
+                }
+                hbName("leftUpperArm"), hbName("rightUpperArm"),
+                "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
+                    // Bring arms down from T-pose (horizontal) to hanging at sides (~1.3 rad)
+                    val swing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 1.3f))
+                    // Gentle sway from hanging position
+                    val armSway = kotlin.math.sin(animPhase * 0.2f) * 0.04f
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 0f, 1f, armSway))
+                }
+                hbName("leftLowerArm"), hbName("rightLowerArm"),
                 "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
-                    // Slight elbow bend
+                    // Slight elbow bend so arms aren't straight sticks
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
                 in fingerBones -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.15f))
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 0f, 1f, 0.15f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -427,46 +518,52 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         val legSwing = kotlin.math.sin(animPhase) * 0.35f
         val kneeBendL = if (legSwing > 0) 0.7f else 0.05f
         val kneeBendR = if (-legSwing > 0) 0.7f else 0.05f
-        val armSwing = kotlin.math.sin(animPhase + kotlin.math.PI.toFloat()) * 0.25f
+        // Arms swing opposite to legs: left arm forward when right leg forward
+        val armSwing = kotlin.math.sin(animPhase + kotlin.math.PI.toFloat()) * 0.3f
+        val breathe = kotlin.math.sin(breathePhase) * 0.03f
 
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_L_UpperLeg" -> {
+                hbName("leftUpperLeg"), "J_Bip_L_UpperLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -legSwing))
                 }
-                "J_Bip_R_UpperLeg" -> {
+                hbName("rightUpperLeg"), "J_Bip_R_UpperLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], legSwing))
                 }
-                "J_Bip_L_LowerLeg" -> {
+                hbName("leftLowerLeg"), "J_Bip_L_LowerLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -kneeBendL))
                 }
-                "J_Bip_R_LowerLeg" -> {
+                hbName("rightLowerLeg"), "J_Bip_R_LowerLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -kneeBendR))
                 }
-                "J_Bip_L_UpperArm" -> {
+                hbName("leftUpperArm"), "J_Bip_L_UpperArm" -> {
+                    // First bring arm down from T-pose to hanging
                     val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
                     val fwdSwing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 0.5f))
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    // Then swing forward/back from hanging position
                     q = multiplyQuaternion(down, axisAngleToQuaternion(fwdSwing[0], fwdSwing[1], fwdSwing[2], armSwing))
                 }
-                "J_Bip_R_UpperArm" -> {
+                hbName("rightUpperArm"), "J_Bip_R_UpperArm" -> {
                     val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
                     val fwdSwing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 0.5f))
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
                     q = multiplyQuaternion(down, axisAngleToQuaternion(fwdSwing[0], fwdSwing[1], fwdSwing[2], -armSwing))
                 }
-                "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
+                hbName("leftLowerArm"), hbName("rightLowerArm"), "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
+                hbName("spine"), hbName("chest") -> {
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(1f, 0f, 0f, breathe * 0.5f))
+                }
                 in fingerBones -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.15f))
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 0f, 1f, 0.15f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -481,21 +578,29 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_L_UpperLeg", "J_Bip_R_UpperLeg" -> {
+                hbName("leftUpperLeg"), hbName("rightUpperLeg"), "J_Bip_L_UpperLeg", "J_Bip_R_UpperLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], hop))
                 }
-                "J_Bip_L_LowerLeg", "J_Bip_R_LowerLeg" -> {
+                hbName("leftLowerLeg"), hbName("rightLowerLeg"), "J_Bip_L_LowerLeg", "J_Bip_R_LowerLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -legBend))
                 }
-                "J_Bip_L_UpperArm" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], armSwing))
+                hbName("leftUpperArm"), "J_Bip_L_UpperArm" -> {
+                    val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    val fwdSwing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    q = multiplyQuaternion(down, axisAngleToQuaternion(fwdSwing[0], fwdSwing[1], fwdSwing[2], armSwing))
                 }
-                "J_Bip_R_UpperArm" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -armSwing))
+                hbName("rightUpperArm"), "J_Bip_R_UpperArm" -> {
+                    val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    val fwdSwing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    q = multiplyQuaternion(down, axisAngleToQuaternion(fwdSwing[0], fwdSwing[1], fwdSwing[2], -armSwing))
+                }
+                hbName("leftLowerArm"), hbName("rightLowerArm"), "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
+                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -508,13 +613,18 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_L_UpperLeg", "J_Bip_R_UpperLeg" -> {
+                hbName("leftUpperLeg"), hbName("rightUpperLeg"), "J_Bip_L_UpperLeg", "J_Bip_R_UpperLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], shake))
                 }
-                "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], shake))
+                hbName("leftUpperArm"), hbName("rightUpperArm"), "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
+                    val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    q = multiplyQuaternion(down, axisAngleToQuaternion(0f, 0f, 1f, shake))
+                }
+                hbName("leftLowerArm"), hbName("rightLowerArm"), "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
+                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -527,12 +637,17 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_C_Hips" -> {
+                hbName("hips"), "J_Bip_C_Hips" -> {
                     q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 1f, 0f, wiggle))
                 }
-                "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
-                    val swing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.5f + wiggle))
+                hbName("leftUpperArm"), hbName("rightUpperArm"), "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
+                    val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    q = multiplyQuaternion(down, axisAngleToQuaternion(0f, 0f, 1f, wiggle))
+                }
+                hbName("leftLowerArm"), hbName("rightLowerArm"), "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
+                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -546,31 +661,28 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
         for (node in nodes) {
             var q = node.baseRotation.copyOf()
             when (node.name) {
-                "J_Bip_C_Hips" -> {
+                hbName("hips"), "J_Bip_C_Hips" -> {
                     q = multiplyQuaternion(q, axisAngleToQuaternion(0f, 1f, 0f, wobble))
                 }
-                "J_Bip_C_Spine" -> {
+                hbName("spine"), "J_Bip_C_Spine" -> {
                     q = multiplyQuaternion(q, axisAngleToQuaternion(1f, 0f, 0f, stumble))
                 }
-                "J_Bip_L_UpperLeg" -> {
+                hbName("leftUpperLeg"), hbName("rightUpperLeg"), "J_Bip_L_UpperLeg", "J_Bip_R_UpperLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], stumble * 1.5f))
                 }
-                "J_Bip_R_UpperLeg" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -stumble * 1.5f))
-                }
-                "J_Bip_L_LowerLeg", "J_Bip_R_LowerLeg" -> {
+                hbName("leftLowerLeg"), hbName("rightLowerLeg"), "J_Bip_L_LowerLeg", "J_Bip_R_LowerLeg" -> {
                     val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
                     q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], kotlin.math.abs(stumble)))
                 }
-                "J_Bip_L_UpperArm" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], wobble * 0.8f))
+                hbName("leftUpperArm"), hbName("rightUpperArm"), "J_Bip_L_UpperArm", "J_Bip_R_UpperArm" -> {
+                    val downSwing = boneSwingDownAxes[node.name] ?: floatArrayOf(0f, 0f, 1f)
+                    val down = multiplyQuaternion(q, axisAngleToQuaternion(downSwing[0], downSwing[1], downSwing[2], 1.3f))
+                    q = multiplyQuaternion(down, axisAngleToQuaternion(0f, 0f, 1f, wobble * 0.5f))
                 }
-                "J_Bip_R_UpperArm" -> {
-                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(0f, 1f, 0f)
-                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], -wobble * 0.8f))
+                hbName("leftLowerArm"), hbName("rightLowerArm"), "J_Bip_L_LowerArm", "J_Bip_R_LowerArm" -> {
+                    val swing = boneSwingForwardAxes[node.name] ?: floatArrayOf(1f, 0f, 0f)
+                    q = multiplyQuaternion(q, axisAngleToQuaternion(swing[0], swing[1], swing[2], 0.35f))
                 }
             }
             System.arraycopy(q, 0, node.rotation, 0, 4)
@@ -691,6 +803,9 @@ class VrmGlRenderer : GLSurfaceView.Renderer {
 
             val hasTexLoc = GLES30.glGetUniformLocation(program, "uHasTexture")
             GLES30.glUniform1f(hasTexLoc, if (texId != 0) 1f else 0f)
+
+            val hasSkinLoc = GLES30.glGetUniformLocation(program, "uHasSkin")
+            GLES30.glUniform1f(hasSkinLoc, if (hasSkin && data.joints != null && data.weights != null) 1f else 0f)
 
             val posLoc = GLES30.glGetAttribLocation(program, "aPosition")
             GLES30.glEnableVertexAttribArray(posLoc)

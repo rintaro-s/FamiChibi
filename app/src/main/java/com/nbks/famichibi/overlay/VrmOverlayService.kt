@@ -39,6 +39,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -135,6 +136,23 @@ class VrmOverlayService : Service() {
             }
         }
     }
+
+    // Demo mode
+    private var demoModeEnabled = false
+    private var demoJob: kotlinx.coroutines.Job? = null
+    private val demoMessages = listOf(
+        "こんにちは！", "今日はいい天気だね", "何してるの？", "一緒に遊ぼう！",
+        "お腹すいたな〜", "眠くなってきた…", "がんばって！", "応援してるよ！",
+        "いいね！", "すごいね！", "楽しいね", "また明日ね！",
+        "おはよう！", "おやすみ〜", "ただいま！", "おかえり！",
+    )
+    private val demoPoses = listOf(
+        VrmGlRenderer.AnimationState.IDLE,
+        VrmGlRenderer.AnimationState.WALK,
+        VrmGlRenderer.AnimationState.SKIP,
+        VrmGlRenderer.AnimationState.FLAIL,
+        VrmGlRenderer.AnimationState.DIZZY,
+    )
 
     private val choreographer = Choreographer.getInstance()
     private var isDragging = false
@@ -248,7 +266,15 @@ class VrmOverlayService : Service() {
         }
 
         setupOverlay()
-        connectWebSocket()
+
+        serviceScope.launch {
+            demoModeEnabled = prefs.demoMode.first()
+            if (demoModeEnabled) {
+                startDemoMode()
+            } else {
+                connectWebSocket()
+            }
+        }
 
         return START_STICKY
     }
@@ -408,9 +434,8 @@ class VrmOverlayService : Service() {
                 val result = GltfParser.parse(bytes)
                 withContext(Dispatchers.Main) {
                     if (result != null) {
-                        val (root, meshes) = result
-                        renderer.loadModel(root, meshes)
-                        Log.d(TAG, "VRM loaded: ${meshes.size} meshes")
+                        renderer.loadModel(result.root, result.meshes, result.vrmExtension)
+                        Log.d(TAG, "VRM loaded: ${result.meshes.size} meshes")
                     } else {
                         Log.e(TAG, "Failed to parse VRM")
                     }
@@ -435,6 +460,135 @@ class VrmOverlayService : Service() {
             }
         }
         return destFile
+    }
+
+    private fun startDemoMode() {
+        demoJob?.cancel()
+        demoJob = serviceScope.launch {
+            // Add 2 demo participants with different VRM models
+            val assetVrms = AssetVrmScanner.listAssetVrms(applicationContext)
+            val demoVrms = assetVrms.filter { it != "AvatarSample_M.vrm" }.take(2)
+            if (demoVrms.isEmpty()) {
+                // Fall back to default
+                addDemoParticipant("demo_1", "妹", null)
+                addDemoParticipant("demo_2", "兄", null)
+            } else {
+                addDemoParticipant("demo_1", "妹", demoVrms.getOrNull(0))
+                addDemoParticipant("demo_2", "兄", demoVrms.getOrNull(1))
+            }
+
+            // Random pose and chat loop
+            while (isActive) {
+                delay(3000 + kotlin.random.Random.nextLong(4000))
+                for ((id, pv) in participants) {
+                    val pose = demoPoses.random()
+                    pv.renderer.animationState = pose
+                    if (pose == VrmGlRenderer.AnimationState.DIZZY) {
+                        pv.renderer.dizzyRemaining = 2.0f
+                    }
+                    val msg = demoMessages.random()
+                    showBubbleOn(pv.speechBubble, pv.userName, msg)
+                }
+            }
+        }
+    }
+
+    private suspend fun addDemoParticipant(id: String, name: String, vrmAsset: String?) {
+        if (participants.containsKey(id)) return
+        if (participants.size >= 3) return
+        val wm = windowManager ?: return
+
+        val frame = FrameLayout(this)
+        val glView = GLSurfaceView(this)
+        glView.setEGLContextClientVersion(3)
+        glView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+        glView.holder.setFormat(PixelFormat.TRANSLUCENT)
+        val r = VrmGlRenderer()
+        r.animationState = VrmGlRenderer.AnimationState.IDLE
+        glView.setRenderer(r)
+        glView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        val glViewParams = FrameLayout.LayoutParams(dpToPx(90), dpToPx(120)).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        }
+        frame.addView(glView, glViewParams)
+
+        val bubble = TextView(this).apply {
+            textSize = 12f
+            setTextColor(android.graphics.Color.BLACK)
+            background = resources.getDrawable(R.drawable.speech_bubble_bg, null)
+            gravity = android.view.Gravity.CENTER
+            maxWidth = dpToPx(180)
+            minWidth = dpToPx(80)
+            setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
+            visibility = View.GONE
+        }
+        val bubbleParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dpToPx(4)
+        }
+        frame.addView(bubble, bubbleParams)
+
+        val params = WindowManager.LayoutParams(
+            dpToPx(90),
+            dpToPx(140),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.START or Gravity.TOP
+
+        val maxX = (screenWidth - params.width).coerceAtLeast(1)
+        val maxY = (screenHeight - params.height).coerceAtLeast(1)
+        params.x = kotlin.random.Random.nextInt(0, maxX)
+        params.y = kotlin.random.Random.nextInt(0, maxY)
+
+        val pv = ParticipantView(
+            userId = id,
+            userName = name,
+            view = frame,
+            glSurfaceView = glView,
+            renderer = r,
+            speechBubble = bubble,
+            params = params,
+            currentX = params.x.toFloat(),
+            currentY = params.y.toFloat()
+        )
+        participants[id] = pv
+        wm.addView(frame, params)
+        pickNewTargetForParticipant(pv)
+
+        // Load VRM for this demo participant
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val vrmFile = if (vrmAsset != null) {
+                    AssetVrmScanner.copyAssetVrmToInternal(applicationContext, vrmAsset)
+                        ?: copyAssetVrm()
+                } else {
+                    copyAssetVrm()
+                }
+                if (vrmFile.exists()) {
+                    val bytes = vrmFile.readBytes()
+                    val result = GltfParser.parse(bytes)
+                    withContext(Dispatchers.Main) {
+                        if (result != null) {
+                            r.loadModel(result.root, result.meshes, result.vrmExtension)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load demo VRM", e)
+            }
+        }
+    }
+
+    private fun stopDemoMode() {
+        demoJob?.cancel()
+        demoJob = null
+        listOf("demo_1", "demo_2").forEach { removeParticipant(it) }
     }
 
     private fun connectWebSocket() {
@@ -796,7 +950,7 @@ class VrmOverlayService : Service() {
                 val result = GltfParser.parse(bytes)
                 withContext(Dispatchers.Main) {
                     if (result != null) {
-                        renderer.loadModel(result.first, result.second)
+                        renderer.loadModel(result.root, result.meshes, result.vrmExtension)
                     }
                 }
             } catch (e: Exception) {
@@ -808,6 +962,7 @@ class VrmOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         choreographer.removeFrameCallback(moveCallback)
+        stopDemoMode()
         try {
             unregisterReceiver(chatReplyReceiver)
         } catch (_: Exception) {}

@@ -164,9 +164,8 @@ class VrmOverlayActivity : ComponentActivity() {
                 val result = GltfParser.parse(bytes)
                 withContext(Dispatchers.Main) {
                     if (result != null) {
-                        val (root, meshes) = result
-                        renderer.loadModel(root, meshes)
-                        Log.d(TAG, "VRM loaded: ${meshes.size} meshes")
+                        renderer.loadModel(result.root, result.meshes, result.vrmExtension)
+                        Log.d(TAG, "VRM loaded: ${result.meshes.size} meshes")
                     } else {
                         Log.e(TAG, "Failed to parse VRM")
                     }
@@ -273,6 +272,7 @@ class VrmOverlayActivity : ComponentActivity() {
         renderer.destroy()
     }
 
+    @Deprecated("Deprecated in Java", ReplaceWith("moveTaskToBack(true)"))
     override fun onBackPressed() {
         moveTaskToBack(true)
     }
